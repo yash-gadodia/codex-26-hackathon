@@ -32,6 +32,13 @@ const state = {
   lastEventType: "none",
 };
 
+const DISTRICT_COLORS = {
+  Frontend: "#63d1c6",
+  Backend: "#6fa8ff",
+  Infra: "#5eb5ff",
+  Tests: "#82df9b",
+};
+
 const FILE_REGEX = /([\w./-]+\.(?:ts|tsx|js|jsx|py|md|json|yml|yaml|go|rs|java|c|cpp|h))/gi;
 
 function hashString(input) {
@@ -194,19 +201,18 @@ function handleCodexEvent(evt) {
 function updateVehicles(dt) {
   for (let i = state.vehicles.length - 1; i >= 0; i -= 1) {
     const v = state.vehicles[i];
+    const dx = v.targetX - v.x;
+    const dy = v.targetY - v.y;
+    const distance = Math.hypot(dx, dy);
     const move = v.speed * dt;
 
-    if (v.x !== v.targetX) {
-      const dx = v.targetX - v.x;
-      const step = Math.sign(dx) * Math.min(Math.abs(dx), move);
-      v.x += step;
-    } else if (v.y !== v.targetY) {
-      const dy = v.targetY - v.y;
-      const step = Math.sign(dy) * Math.min(Math.abs(dy), move);
-      v.y += step;
-    } else {
+    if (distance <= move || distance < 0.02) {
       state.vehicles.splice(i, 1);
+      continue;
     }
+
+    v.x += (dx / distance) * move;
+    v.y += (dy / distance) * move;
   }
 }
 
@@ -223,118 +229,189 @@ function updateEffects(dt) {
   }
 }
 
-function drawTileRect(tx, ty, color, inset = 0) {
-  const px = tx * WORLD.tile + inset;
-  const py = ty * WORLD.tile + inset;
-  const size = WORLD.tile - inset * 2;
-  ctx.fillStyle = color;
-  ctx.fillRect(px, py, size, size);
+function tileToPoint(tx, ty) {
+  return {
+    x: tx * WORLD.tile + WORLD.tile / 2,
+    y: ty * WORLD.tile + WORLD.tile / 2,
+  };
 }
 
-function drawGrid() {
-  ctx.fillStyle = "#0b1323";
+function drawBackdrop(time) {
+  const gradient = ctx.createRadialGradient(
+    WORLD.width * 0.45,
+    WORLD.height * 0.35,
+    80,
+    WORLD.width * 0.5,
+    WORLD.height * 0.5,
+    WORLD.width * 0.7
+  );
+  gradient.addColorStop(0, "#213253");
+  gradient.addColorStop(0.55, "#101d35");
+  gradient.addColorStop(1, "#080f1e");
+
+  ctx.fillStyle = gradient;
   ctx.fillRect(0, 0, WORLD.width, WORLD.height);
 
-  ctx.strokeStyle = "rgba(109, 147, 217, 0.15)";
-  ctx.lineWidth = 1;
-
-  for (let x = 0; x <= WORLD.cols; x += 1) {
-    const px = x * WORLD.tile + 0.5;
+  ctx.strokeStyle = "rgba(116, 166, 255, 0.08)";
+  ctx.lineWidth = 1.2;
+  for (let y = 0; y <= WORLD.rows; y += 2) {
+    const py = y * WORLD.tile + Math.sin(time * 0.7 + y * 0.16) * 2.4;
     ctx.beginPath();
-    ctx.moveTo(px, 0);
-    ctx.lineTo(px, WORLD.height);
-    ctx.stroke();
-  }
-
-  for (let y = 0; y <= WORLD.rows; y += 1) {
-    const py = y * WORLD.tile + 0.5;
-    ctx.beginPath();
-    ctx.moveTo(0, py);
-    ctx.lineTo(WORLD.width, py);
+    for (let x = 0; x <= WORLD.cols; x += 1) {
+      const px = x * WORLD.tile;
+      const offset = Math.sin(time * 1.4 + x * 0.2 + y * 0.05) * 2.6;
+      if (x === 0) ctx.moveTo(px, py + offset);
+      else ctx.lineTo(px, py + offset);
+    }
     ctx.stroke();
   }
 }
 
-function drawDistrictLabels() {
-  ctx.font = "bold 14px monospace";
-  ctx.fillStyle = "rgba(219, 231, 255, 0.85)";
-
+function drawDistrictShapes(time) {
   for (const [name, d] of Object.entries(DISTRICTS)) {
-    const x = d.x1 * WORLD.tile + 8;
-    const y = d.y1 * WORLD.tile + 18;
-    ctx.fillText(name, x, y);
+    const center = tileToPoint((d.x1 + d.x2) / 2, (d.y1 + d.y2) / 2);
+    const rx = ((d.x2 - d.x1 + 1) * WORLD.tile) / 2 - 18;
+    const ry = ((d.y2 - d.y1 + 1) * WORLD.tile) / 2 - 18;
+    const tint = DISTRICT_COLORS[name];
+    const drift = Math.sin(time * 1.1 + center.x * 0.003 + center.y * 0.002) * 7;
 
-    ctx.strokeStyle = "rgba(164, 191, 255, 0.2)";
-    ctx.strokeRect(
-      d.x1 * WORLD.tile + 0.5,
-      d.y1 * WORLD.tile + 0.5,
-      (d.x2 - d.x1 + 1) * WORLD.tile,
-      (d.y2 - d.y1 + 1) * WORLD.tile
-    );
+    ctx.beginPath();
+    ctx.ellipse(center.x, center.y + drift, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fillStyle = `${tint}1f`;
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = `${tint}66`;
+    ctx.stroke();
+
+    ctx.font = "600 15px 'Avenir Next', sans-serif";
+    ctx.fillStyle = `${tint}ee`;
+    ctx.fillText(name, center.x - 34, center.y - ry + 28 + drift);
   }
 }
 
-function drawHQ() {
-  drawTileRect(HQ.x, HQ.y, "#f5f8ff", 1);
-  drawTileRect(HQ.x, HQ.y, "#7eb6ff", 4);
+function drawConnectors(time) {
+  const hq = tileToPoint(HQ.x, HQ.y);
+  for (const [name] of Object.entries(DISTRICTS)) {
+    const target = districtCenter(name);
+    const point = tileToPoint(target.x, target.y);
+    const tint = DISTRICT_COLORS[name];
+    const curve = Math.sin(time * 1.6 + point.x * 0.004) * 40;
 
-  ctx.font = "11px monospace";
-  ctx.fillStyle = "#b7cbff";
-  ctx.fillText("HQ", HQ.x * WORLD.tile + 2, HQ.y * WORLD.tile - 4);
+    ctx.beginPath();
+    ctx.moveTo(hq.x, hq.y);
+    ctx.bezierCurveTo(
+      hq.x + curve,
+      hq.y - curve * 0.4,
+      point.x - curve,
+      point.y + curve * 0.3,
+      point.x,
+      point.y
+    );
+    ctx.strokeStyle = `${tint}4f`;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
 }
 
-function drawBuildings() {
+function drawHQ(time) {
+  const hq = tileToPoint(HQ.x, HQ.y);
+  const pulse = 11 + Math.sin(time * 3) * 1.8;
+
+  ctx.beginPath();
+  ctx.arc(hq.x, hq.y, pulse + 8, 0, Math.PI * 2);
+  ctx.fillStyle = "rgba(94, 181, 255, 0.15)";
+  ctx.fill();
+
+  ctx.beginPath();
+  ctx.arc(hq.x, hq.y, pulse, 0, Math.PI * 2);
+  ctx.fillStyle = "#d9f0ff";
+  ctx.fill();
+
+  ctx.font = "600 12px 'Avenir Next', sans-serif";
+  ctx.fillStyle = "#a9d2ff";
+  ctx.fillText("HQ", hq.x - 9, hq.y - 16);
+}
+
+function drawBuildings(time) {
   for (const [key, b] of state.buildings.entries()) {
     const [xStr, yStr] = key.split(",");
     const x = Number(xStr);
     const y = Number(yStr);
+    const p = tileToPoint(x, y);
+    const tint = DISTRICT_COLORS[b.district] || "#88b4ff";
+    const base = 3.5 + b.level * 2.5;
+    const wobble = Math.sin(time * 2.2 + x * 0.34 + y * 0.22) * 0.9;
+    const radius = base + wobble;
 
-    if (b.level === 1) drawTileRect(x, y, "#3f5f7f", 2);
-    if (b.level === 2) drawTileRect(x, y, "#4f8ccf", 1);
-    if (b.level === 3) drawTileRect(x, y, "#76d78c", 0);
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, radius + 4, 0, Math.PI * 2);
+    ctx.fillStyle = `${tint}24`;
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+    if (b.level === 1) ctx.fillStyle = `${tint}88`;
+    if (b.level === 2) ctx.fillStyle = `${tint}bb`;
+    if (b.level === 3) ctx.fillStyle = `${tint}ff`;
+    ctx.fill();
   }
 }
 
 function drawVehicles() {
   for (const v of state.vehicles) {
-    const px = Math.round(v.x * WORLD.tile);
-    const py = Math.round(v.y * WORLD.tile);
+    const p = tileToPoint(v.x, v.y);
+    const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, 10);
+    glow.addColorStop(0, `${v.color}ee`);
+    glow.addColorStop(1, `${v.color}00`);
 
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 3.5, 0, Math.PI * 2);
     ctx.fillStyle = v.color;
-    ctx.fillRect(px + 4, py + 4, 8, 8);
+    ctx.fill();
   }
 }
 
 function drawEffects() {
   for (const e of state.effects) {
-    const px = e.x * WORLD.tile;
-    const py = e.y * WORLD.tile;
+    const p = tileToPoint(e.x, e.y);
     const progress = Math.min(1, e.age / e.ttl);
 
     if (e.type === "pulse") {
-      const size = Math.floor(4 + progress * 18);
+      const size = 5 + progress * 26;
       const alpha = 1 - progress;
-      ctx.fillStyle = `${e.color}${Math.floor(alpha * 255)
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, size, 0, Math.PI * 2);
+      ctx.strokeStyle = `${e.color}${Math.floor(alpha * 255)
         .toString(16)
         .padStart(2, "0")}`;
-      ctx.fillRect(px + 8 - size / 2, py + 8 - size / 2, size, size);
+      ctx.lineWidth = 2.5;
+      ctx.stroke();
     }
 
     if (e.type === "beacon") {
       const on = Math.floor(e.blink / 0.2) % 2 === 0;
       if (on) {
-        ctx.fillStyle = e.color;
-        ctx.fillRect(px + 2, py + 2, 12, 12);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 9, 0, Math.PI * 2);
+        ctx.fillStyle = `${e.color}b0`;
+        ctx.fill();
       }
     }
   }
 }
 
-function render() {
-  drawGrid();
-  drawDistrictLabels();
-  drawBuildings();
-  drawHQ();
+function render(now) {
+  const time = now / 1000;
+  drawBackdrop(time);
+  drawDistrictShapes(time);
+  drawConnectors(time);
+  drawBuildings(time);
+  drawHQ(time);
   drawVehicles();
   drawEffects();
 }
@@ -384,7 +461,7 @@ function frame(now) {
 
   updateVehicles(dt);
   updateEffects(dt);
-  render();
+  render(now);
   updateHud();
 
   requestAnimationFrame(frame);
