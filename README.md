@@ -57,6 +57,8 @@ Core interactions:
 
 Replay and simulator controls live under `Ops -> Dev tools` (collapsed by default) so fallback reliability is preserved without shrinking the visual map.
 
+Street rendering uses pixel-art textures from `/public/assets/city/*`. If those files are missing or fail to load, the canvas logs explicit `[city-art]` errors and automatically falls back to vector street rendering.
+
 ## What We Built
 
 - Real-time dashboard for Codex app-server runs

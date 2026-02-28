@@ -81,3 +81,24 @@ This mode prioritizes clarity and completeness for judges while preserving visib
 - Input source is Codex app-server notifications relayed to websocket
 - Unknown event shapes should still produce understandable UI behavior
 - Prefer fail-fast error states over silent degraded behavior
+
+## Pixel Agent Legend
+
+Map actors now encode status directly through character behavior:
+
+- Active: walking/typing motion
+- Waiting: idle pose with yellow thought bubble
+- Blocked (system): red outline with shake
+- Approval needed: clipboard badge above actor
+- Loop detected: pacing left and right
+- Done: faded pseudo-sit pose
+
+Each actor also shows a floating progress timer (`⏳`) based on time since last progress signal (tool activity, file change, or success).
+
+## Crowding Behavior
+
+To keep 15-20+ agents readable:
+
+- Density mode shrinks actor footprint first
+- If overflow still exists, one slot becomes a cluster with `+N`
+- Cluster click/focus opens the representative run while preserving keyboard navigation

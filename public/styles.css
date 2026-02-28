@@ -360,6 +360,10 @@ body.view-pane .pane-wrap {
   cursor: pointer;
 }
 
+.map-tile-hit[data-member-count]:not([data-member-count="1"]) {
+  cursor: pointer;
+}
+
 .map-tile-hit:focus-visible {
   outline: 2px solid var(--lorong-yellow);
   outline-offset: -1px;

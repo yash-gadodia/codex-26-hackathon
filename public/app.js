@@ -52,6 +52,31 @@ const BLOCKER_ICON = {
 };
 
 const LORONG_STREETS = ["Lorong 1", "Lorong 2", "Lorong 3", "Lorong 4", "Lorong 5", "Lorong 6", "Lorong 7", "Lorong 8"];
+const CITY_ART = {
+  roadBase: { src: "./assets/city/street_tile_4.png", image: null },
+  whiteDash: { src: "./assets/city/street_tile_2.png", image: null },
+  doubleYellow: { src: "./assets/city/street_tile_2_1.png", image: null },
+  crosswalk: { src: "./assets/city/street_tile_1.png", image: null },
+  sidewalk: { src: "./assets/city/sidewalk_pattern.png", image: null },
+  building06: { src: "./assets/city/building_06.png", image: null },
+  building07: { src: "./assets/city/building_07.png", image: null },
+  building08: { src: "./assets/city/building_08.png", image: null },
+  building09: { src: "./assets/city/building_09.png", image: null },
+};
+const CITY_BUILDING_KEYS = ["building06", "building07", "building08", "building09"];
+const ROTATED_PATTERN_CACHE = new Map();
+const CHARACTER_SPRITE_PATHS = [
+  "/assets/characters/char_0.png",
+  "/assets/characters/char_1.png",
+  "/assets/characters/char_2.png",
+  "/assets/characters/char_3.png",
+  "/assets/characters/char_4.png",
+  "/assets/characters/char_5.png",
+];
+const CHARACTER_SPRITES = {
+  images: [],
+  warned: false,
+};
 
 const canvas = document.getElementById("cityCanvas");
 const ctx = canvas.getContext("2d");
@@ -174,8 +199,9 @@ const state = {
     criticalToastUntil: 0,
     previousCriticalCount: 0,
     mapDensityMode: false,
+    cityArtEnabled: true,
     keyboardFocusIndex: 0,
-    tileRects: [],
+    actorRects: [],
   },
   simulatorTimers: [],
   persistTimer: null,
@@ -218,6 +244,49 @@ function ageText(ts) {
   if (min < 60) return `${min}m`;
   const hr = Math.floor(min / 60);
   return `${hr}h ${min % 60}m`;
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error(`Image failed to load: ${src}`));
+    img.src = src;
+  });
+}
+
+async function preloadCityArt() {
+  const entries = Object.entries(CITY_ART);
+  const results = await Promise.allSettled(
+    entries.map(async ([key, item]) => {
+      const image = await loadImage(item.src);
+      return { key, image };
+    })
+  );
+  let failed = false;
+  for (const result of results) {
+    if (result.status !== "fulfilled") {
+      failed = true;
+      continue;
+    }
+    CITY_ART[result.value.key].image = result.value.image;
+  }
+  if (!failed) return;
+  state.ui.cityArtEnabled = false;
+  for (let i = 0; i < results.length; i += 1) {
+    if (results[i].status === "fulfilled") continue;
+    console.error(`[city-art] failed to load ${entries[i][1].src}`);
+  }
+  console.error("[city-art] using vector street fallback");
+}
+
+async function preloadCharacterSprites() {
+  const results = await Promise.allSettled(CHARACTER_SPRITE_PATHS.map((src) => loadImage(src)));
+  CHARACTER_SPRITES.images = results.filter((item) => item.status === "fulfilled").map((item) => item.value);
+  if (CHARACTER_SPRITES.images.length === CHARACTER_SPRITE_PATHS.length) return;
+  if (CHARACTER_SPRITES.warned) return;
+  CHARACTER_SPRITES.warned = true;
+  console.error("[character-sprites] some character sprites failed to load; using fallback silhouette when needed");
 }
 
 function deriveConnectionState() {
@@ -1002,7 +1071,7 @@ function phaseLaneGeometry(index) {
   const margin = 18;
   const top = 58;
   const bottom = 24;
-  const gap = 8;
+  const gap = 40;
   const laneW = Math.floor((WORLD.width - margin * 2 - gap * (PHASE_COLUMNS.length - 1)) / PHASE_COLUMNS.length);
   const laneH = WORLD.height - top - bottom;
   const x = margin + index * (laneW + gap);
@@ -1047,10 +1116,111 @@ function drawText(target, text, x, y, color = "#f4f0de", size = 12) {
   target.fillText(text, Math.round(x), Math.round(y));
 }
 
-function tileDims(densityMode) {
-  const base = state.ui.tileSize === "s" ? { w: 64, h: 40 } : state.ui.tileSize === "l" ? { w: 92, h: 56 } : { w: 78, h: 48 };
-  if (!densityMode) return base;
-  return { w: Math.max(56, base.w - 16), h: Math.max(34, base.h - 12) };
+function drawPatternRect(target, image, rect, alpha = 1) {
+  if (!image) return;
+  const pattern = target.createPattern(image, "repeat");
+  if (!pattern) return;
+  target.save();
+  target.globalAlpha = alpha;
+  target.fillStyle = pattern;
+  target.fillRect(rect.x, rect.y, rect.w, rect.h);
+  target.restore();
+}
+
+function getRotatedPatternImage(image, degrees) {
+  if (!image) return null;
+  const key = `${image.src || "inline"}|${degrees}`;
+  if (ROTATED_PATTERN_CACHE.has(key)) return ROTATED_PATTERN_CACHE.get(key);
+  const rad = (degrees * Math.PI) / 180;
+  const srcW = image.naturalWidth || image.width || 1;
+  const srcH = image.naturalHeight || image.height || 1;
+  const outW = Math.ceil(Math.abs(srcW * Math.cos(rad)) + Math.abs(srcH * Math.sin(rad))) || 1;
+  const outH = Math.ceil(Math.abs(srcW * Math.sin(rad)) + Math.abs(srcH * Math.cos(rad))) || 1;
+  const off = document.createElement("canvas");
+  off.width = outW;
+  off.height = outH;
+  const offCtx = off.getContext("2d");
+  if (!offCtx) return image;
+  offCtx.imageSmoothingEnabled = false;
+  offCtx.translate(outW / 2, outH / 2);
+  offCtx.rotate(rad);
+  offCtx.drawImage(image, -srcW / 2, -srcH / 2);
+  ROTATED_PATTERN_CACHE.set(key, off);
+  return off;
+}
+
+function drawSidewalkSurface(target, rect) {
+  drawPatternRect(target, CITY_ART.sidewalk.image, rect, 1);
+  target.fillStyle = "rgba(13, 31, 45, 0.22)";
+  target.fillRect(rect.x, rect.y, rect.w, rect.h);
+}
+
+function drawRoadSurface(target, rect, variant) {
+  drawPatternRect(target, CITY_ART.roadBase.image, rect, 1);
+  const centerW = variant === "main" ? 12 : 8;
+  const centerRect = {
+    x: Math.round(rect.x + rect.w / 2 - centerW / 2),
+    y: rect.y + 8,
+    w: centerW,
+    h: Math.max(10, rect.h - 16),
+  };
+  const dashVertical = getRotatedPatternImage(CITY_ART.whiteDash.image, 90);
+  drawPatternRect(target, dashVertical || CITY_ART.whiteDash.image, centerRect, variant === "main" ? 0.95 : 0.75);
+
+  if (variant === "main") return;
+
+  const crosswalkH = Math.min(26, Math.max(12, Math.floor(rect.h * 0.24)));
+  const crosswalkRect = {
+    x: rect.x + Math.max(10, Math.floor(rect.w * 0.06)),
+    y: rect.y + rect.h - crosswalkH - 6,
+    w: Math.max(8, rect.w - Math.max(20, Math.floor(rect.w * 0.12))),
+    h: crosswalkH,
+  };
+  drawPatternRect(target, CITY_ART.crosswalk.image, crosswalkRect, 0.88);
+}
+
+function drawBuildingDividers(target, laneGeometries) {
+  if (laneGeometries.length < 2) return;
+  for (let i = 0; i < laneGeometries.length - 1; i += 1) {
+    const left = laneGeometries[i].lane;
+    const right = laneGeometries[i + 1].lane;
+    const dividerX = left.x + left.w;
+    const dividerW = right.x - dividerX;
+    if (dividerW < 8) continue;
+
+    const dividerRect = {
+      x: dividerX + 1,
+      y: left.y,
+      w: Math.max(2, dividerW - 2),
+      h: left.h,
+    };
+
+    target.fillStyle = "rgba(18, 37, 54, 0.6)";
+    target.fillRect(dividerRect.x, dividerRect.y, dividerRect.w, dividerRect.h);
+
+    const sprites = CITY_BUILDING_KEYS.map((key) => CITY_ART[key].image).filter(Boolean);
+    if (!sprites.length) continue;
+
+    let yCursor = dividerRect.y + dividerRect.h - 4;
+    let seq = i;
+    while (yCursor > dividerRect.y + 18) {
+      const sprite = sprites[seq % sprites.length];
+      const scale = 0.12 + ((seq % 3) * 0.02);
+      const baseW = sprite.naturalWidth || sprite.width || 1;
+      const baseH = sprite.naturalHeight || sprite.height || 1;
+      const drawW = Math.max(14, Math.min(dividerRect.w - 4, Math.floor(baseW * scale)));
+      const drawH = Math.max(18, Math.floor(baseH * (drawW / baseW)));
+      const drawX = dividerRect.x + Math.floor((dividerRect.w - drawW) / 2);
+      const drawY = yCursor - drawH;
+      if (drawY < dividerRect.y + 4) break;
+      target.drawImage(sprite, drawX, drawY, drawW, drawH);
+      yCursor = drawY - 4;
+      seq += 1;
+    }
+
+    target.fillStyle = "rgba(11, 23, 35, 0.2)";
+    target.fillRect(dividerRect.x, dividerRect.y, dividerRect.w, dividerRect.h);
+  }
 }
 
 function stableSortRuns(runs) {
@@ -1065,62 +1235,229 @@ function stableSortRuns(runs) {
   });
 }
 
-function packTiles(rect, runs, densityMode) {
-  const dims = tileDims(densityMode);
-  const spacing = densityMode ? 4 : 6;
-  const cols = Math.max(1, Math.floor((rect.w - 10) / (dims.w + spacing)));
-  const placed = [];
-
-  const sorted = stableSortRuns(runs);
-  for (let i = 0; i < sorted.length; i += 1) {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const x = rect.x + 6 + col * (dims.w + spacing);
-    const y = rect.y + 22 + row * (dims.h + spacing);
-    if (y + dims.h > rect.y + rect.h - 4) break;
-    placed.push({ run: sorted[i], x, y, w: dims.w, h: dims.h, densityMode });
-  }
-
-  return placed;
+function actorDims(densityMode) {
+  const base = state.ui.tileSize === "s" ? { w: 70, h: 88 } : state.ui.tileSize === "l" ? { w: 102, h: 122 } : { w: 84, h: 102 };
+  if (!densityMode) return base;
+  return { w: Math.max(58, base.w - 18), h: Math.max(78, base.h - 20) };
 }
 
-function drawRunTile(target, tile, phaseId, inCul = false) {
-  const { run, x, y, w, h, densityMode } = tile;
+function shortLabel(run, densityMode) {
+  const raw = run.label.replace(/^codex:/, "");
+  return densityMode ? raw.slice(0, 9) : raw.slice(0, 12);
+}
+
+function progressTsForRun(run) {
+  return Math.max(run.lastToolAt || 0, run.lastFileChangeAt || 0, run.lastSuccessTs || 0, run.firstTs || 0, run.createdAt || 0);
+}
+
+function progressAgeMs(run) {
+  const ts = progressTsForRun(run);
+  if (!ts) return 0;
+  return Math.max(0, nowMs() - ts);
+}
+
+function visualStateForRun(run) {
+  if (run.requiresHumanGate || run.operationalStatus === "needs-human") return "approval";
+  if (run.operationalStatus === "loop" || run.blockerClass === "verify_loop" || run.blockerClass === "tool_fail_loop") return "loop";
+  if (run.operationalStatus === "blocked") return "blocked";
+  if (run.operationalStatus === "failed") return "failed";
+  if (run.operationalStatus === "active") return "active";
+  if (run.operationalStatus === "done") return "done";
+  return "waiting";
+}
+
+function characterSpriteForRun(run) {
+  if (!CHARACTER_SPRITES.images.length) return null;
+  const idx = hashString(run.runId) % CHARACTER_SPRITES.images.length;
+  return CHARACTER_SPRITES.images[idx] || null;
+}
+
+function drawFallbackCharacter(target, x, y, w, h, color = "#dde8f4") {
+  drawRoundedRect(target, x + Math.floor(w * 0.34), y + Math.floor(h * 0.06), Math.floor(w * 0.32), Math.floor(h * 0.24), 6, color);
+  drawRoundedRect(target, x + Math.floor(w * 0.22), y + Math.floor(h * 0.28), Math.floor(w * 0.56), Math.floor(h * 0.56), 8, color);
+}
+
+function drawTimeChip(target, x, y, text, ageMs) {
+  const palette = ageMs >= 10 * 60 * 1000 ? { bg: "rgba(154, 41, 41, 0.92)", fg: "#ffe6e6" } : ageMs >= 2 * 60 * 1000 ? { bg: "rgba(148, 109, 28, 0.9)", fg: "#fff2d3" } : { bg: "rgba(23, 56, 82, 0.9)", fg: "#dff2ff" };
+  const width = Math.max(44, text.length * 6 + 8);
+  drawRoundedRect(target, x, y, width, 14, 5, palette.bg, "rgba(205, 232, 255, 0.45)");
+  drawText(target, text, x + 4, y + 10, palette.fg, 8);
+}
+
+function drawBubble(target, cx, cy) {
+  target.fillStyle = "#ffd548";
+  target.beginPath();
+  target.arc(cx, cy, 5, 0, Math.PI * 2);
+  target.fill();
+  target.beginPath();
+  target.arc(cx - 6, cy + 8, 2, 0, Math.PI * 2);
+  target.fill();
+}
+
+function drawStateIcon(target, x, y, stateId) {
+  if (stateId === "approval") {
+    drawText(target, "📋", x, y, "#f4f9ff", 10);
+  } else if (stateId === "active") {
+    drawText(target, "⌨", x, y, "#c8f2dd", 9);
+  } else if (stateId === "loop") {
+    drawText(target, "🔁", x, y, "#ffd8d0", 10);
+  }
+}
+
+function drawClusterBadge(target, x, y, count) {
+  const text = `+${count}`;
+  const width = Math.max(18, 8 + text.length * 6);
+  drawRoundedRect(target, x - width, y, width, 14, 5, "rgba(20, 47, 73, 0.94)", "rgba(205, 232, 255, 0.56)");
+  drawText(target, text, x - width + 4, y + 10, "#e7f5ff", 8);
+}
+
+function motionForActor(placement, visualState, timeSec, reducedMotion) {
+  const seed = (hashString(placement.run.runId) % 1000) / 1000;
+  if (reducedMotion) {
+    return { dx: 0, dy: 0, alpha: visualState === "done" ? 0.62 : 1, shake: 0, typingOn: visualState === "active", sitOffset: visualState === "done" ? 4 : 0 };
+  }
+  const t = timeSec + seed;
+  if (visualState === "active") {
+    return { dx: Math.sin(t * 5) * 2, dy: Math.sin(t * 8) * 1.5, alpha: 1, shake: 0, typingOn: Math.sin(t * 10) > 0, sitOffset: 0 };
+  }
+  if (visualState === "waiting") {
+    return { dx: 0, dy: Math.sin(t * 2.5) * 0.6, alpha: 1, shake: 0, typingOn: false, sitOffset: 0 };
+  }
+  if (visualState === "blocked") {
+    return { dx: 0, dy: 0, alpha: 1, shake: Math.sin(t * 28) * 1.6, typingOn: false, sitOffset: 0 };
+  }
+  if (visualState === "approval") {
+    return { dx: 0, dy: Math.sin(t * 4) * 0.5, alpha: 1, shake: 0, typingOn: false, sitOffset: 0 };
+  }
+  if (visualState === "loop") {
+    return { dx: Math.sin(t * 3) * Math.max(4, placement.w * 0.14), dy: 0, alpha: 1, shake: 0, typingOn: false, sitOffset: 0 };
+  }
+  if (visualState === "failed") {
+    return { dx: 0, dy: 0, alpha: 0.95, shake: Math.sin(t * 18) * 2.1, typingOn: false, sitOffset: 0 };
+  }
+  return { dx: 0, dy: 0, alpha: 0.62, shake: 0, typingOn: false, sitOffset: 4 };
+}
+
+function drawAgentActor(target, placement, timeSec) {
+  const { run, x, y, w, h, densityMode, section, clusterCount } = placement;
+  const visualState = visualStateForRun(run);
   const token = STATUS_TOKENS[run.operationalStatus] || STATUS_TOKENS.waiting;
   const selected = run.runId === state.ui.selectedAgentRunId;
   const highlighted = run.runId === state.ui.highlightRunId || (run.highlight && run.highlight.until > nowMs());
   const border = selected || highlighted ? "#f7e085" : token.color;
-  drawRoundedRect(target, x, y, w, h, 5, "rgba(8, 20, 32, 0.92)", border);
 
-  drawText(target, `${token.icon} ${densityMode ? run.label.replace(/^codex:/, "").slice(0, 8) : run.label.replace(/^codex:/, "").slice(0, 12)}`, x + 6, y + 14, "#e9f4ff", densityMode ? 8 : 9);
+  drawRoundedRect(target, x, y, w, h, 6, "rgba(8, 20, 32, 0.55)", border);
 
-  if (!densityMode) {
-    drawText(target, run.operationalStatus, x + 6, y + 28, "#bdd5e7", 8);
+  const motion = motionForActor(placement, visualState, timeSec, state.ui.reducedMotion);
+  const sprite = characterSpriteForRun(run);
+  const spriteW = Math.max(26, Math.floor(w * 0.7));
+  const spriteH = Math.max(28, Math.floor(h * 0.72));
+  const baseX = x + Math.floor((w - spriteW) / 2 + motion.dx + motion.shake);
+  const baseY = y + h - spriteH - 11 + Math.round(motion.dy) + motion.sitOffset;
+
+  target.save();
+  target.globalAlpha = motion.alpha;
+  if (sprite) {
+    target.drawImage(sprite, baseX, baseY, spriteW, spriteH);
+  } else {
+    drawFallbackCharacter(target, baseX, baseY, spriteW, spriteH, "#dce8f6");
+  }
+  target.restore();
+
+  if (visualState === "blocked" || visualState === "failed") {
+    target.strokeStyle = visualState === "failed" ? "rgba(214, 56, 56, 0.95)" : "rgba(242, 98, 98, 0.9)";
+    target.lineWidth = 2;
+    target.strokeRect(baseX - 2, baseY - 2, spriteW + 4, spriteH + 4);
   }
 
-  if (inCul && run.blockerClass !== "none") {
-    drawText(target, `${BLOCKER_ICON[run.blockerClass] || ""} ${blockerLabel(run.blockerClass)}`, x + 6, y + h - 6, "#ffd6d0", 7);
-    drawText(target, phaseId, x + w - 40, y + h - 6, "#b8c9da", 7);
+  if (visualState === "waiting") drawBubble(target, baseX + spriteW - 3, baseY - 5);
+  if (visualState === "approval" || visualState === "active" || visualState === "loop") drawStateIcon(target, baseX + spriteW - 8, baseY - 2, visualState);
+
+  if (motion.typingOn) {
+    drawRoundedRect(target, baseX + Math.floor(spriteW * 0.15), baseY + spriteH - 11, Math.max(10, Math.floor(spriteW * 0.7)), 6, 2, "rgba(10, 29, 43, 0.9)", "rgba(168, 233, 199, 0.65)");
   }
+
+  const timeText = `⏳ ${ageText(progressTsForRun(run))}`;
+  drawTimeChip(target, x + 3, y + 2, timeText, progressAgeMs(run));
+  drawText(target, shortLabel(run, densityMode), x + 4, y + h - 4, "#dceefe", 8);
+
+  if (section === "cul" && run.blockerClass !== "none") drawText(target, `${BLOCKER_ICON[run.blockerClass] || ""}`, x + w - 13, y + h - 4, "#ffd6d0", 8);
+  if (clusterCount > 0) drawClusterBadge(target, x + w - 2, y + 2, clusterCount);
+}
+
+function packActors(rect, runs, densityMode, section, phase) {
+  const dims = actorDims(densityMode);
+  const spacing = densityMode ? 4 : 8;
+  const startX = rect.x + 6;
+  const startY = rect.y + 22;
+  const usableW = rect.w - 12;
+  const usableH = rect.h - 26;
+  const cols = Math.max(1, Math.floor((usableW + spacing) / (dims.w + spacing)));
+  const rows = Math.max(1, Math.floor((usableH + spacing) / (dims.h + spacing)));
+  const capacity = Math.max(1, cols * rows);
+  const sorted = stableSortRuns(runs);
+  const placements = [];
+
+  const assignAt = (slotIndex, representative, members) => {
+    const col = slotIndex % cols;
+    const row = Math.floor(slotIndex / cols);
+    const px = startX + col * (dims.w + spacing);
+    const py = startY + row * (dims.h + spacing);
+    placements.push({
+      run: representative,
+      x: px,
+      y: py,
+      w: dims.w,
+      h: dims.h,
+      densityMode,
+      phase,
+      section,
+      clusterCount: Math.max(0, members.length - 1),
+      memberRunIds: members.map((item) => item.runId),
+    });
+  };
+
+  if (sorted.length <= capacity) {
+    for (let i = 0; i < sorted.length; i += 1) {
+      assignAt(i, sorted[i], [sorted[i]]);
+    }
+    return { placements, clustered: false };
+  }
+
+  const singles = Math.max(0, capacity - 1);
+  for (let i = 0; i < singles; i += 1) {
+    assignAt(i, sorted[i], [sorted[i]]);
+  }
+  const clusteredMembers = sorted.slice(singles);
+  assignAt(singles, clusteredMembers[0], clusteredMembers);
+  return { placements, clustered: true };
 }
 
 function drawMap() {
+  const timeSec = performance.now() / 1000;
   ctx.clearRect(0, 0, WORLD.width, WORLD.height);
   drawRoundedRect(ctx, 0, 0, WORLD.width, WORLD.height, 0, "#0d2235");
   drawText(ctx, "City Control Room", 18, 24, "#e8f5ff", 15);
-  drawText(ctx, "Main Road = Active Flow | Cul-de-Sac = System Stall", 18, 42, "#c0d6e8", 10);
+  drawText(ctx, "Stateful Pixel Agents | Main Road = flow | Cul-de-Sac = stalled", 18, 42, "#c0d6e8", 10);
 
   const runs = getRunsForView();
-  state.ui.tileRects = [];
+  state.ui.actorRects = [];
+  const useCityArt = state.ui.cityArtEnabled
+    && CITY_ART.roadBase.image
+    && CITY_ART.sidewalk.image
+    && CITY_ART.whiteDash.image
+    && CITY_ART.crosswalk.image
+    && CITY_ART.building06.image
+    && CITY_ART.building07.image
+    && CITY_ART.building08.image
+    && CITY_ART.building09.image;
 
   let densityTriggered = false;
-
-  for (const [idx, lane] of PHASE_COLUMNS.entries()) {
+  const lanes = PHASE_COLUMNS.map((lane, idx) => {
     const g = phaseLaneGeometry(idx);
     const laneRuns = runs.filter((run) => !run.requiresHumanGate && run.currentPhase === lane.id);
     const culRuns = laneRuns.filter((run) => CULDESAC_BLOCKERS.has(run.blockerClass));
     const mainRuns = laneRuns.filter((run) => !CULDESAC_BLOCKERS.has(run.blockerClass));
-
     const activeCount = laneRuns.filter((run) => run.operationalStatus === "active").length;
     const waitingCount = laneRuns.filter((run) => run.operationalStatus === "waiting").length;
     const stalledCount = culRuns.length;
@@ -1128,8 +1465,18 @@ function drawMap() {
       .map((run) => run.blockedSinceTs || run.lastActionTs || 0)
       .filter(Boolean)
       .sort((a, b) => a - b)[0];
+    return { lane, g, laneRuns, culRuns, mainRuns, activeCount, waitingCount, stalledCount, oldestStallTs };
+  });
 
-    drawRoundedRect(ctx, g.lane.x, g.lane.y, g.lane.w, g.lane.h, 6, "#17324a", "rgba(161, 199, 224, 0.2)");
+  for (const item of lanes) {
+    const { g } = item;
+    if (useCityArt) {
+      drawRoundedRect(ctx, g.lane.x, g.lane.y, g.lane.w, g.lane.h, 6, "#152e45", "rgba(161, 199, 224, 0.2)");
+      drawSidewalkSurface(ctx, g.lane);
+      drawRoundedRect(ctx, g.lane.x, g.lane.y, g.lane.w, g.lane.h, 6, "rgba(0, 0, 0, 0)", "rgba(161, 199, 224, 0.2)");
+    } else {
+      drawRoundedRect(ctx, g.lane.x, g.lane.y, g.lane.w, g.lane.h, 6, "#17324a", "rgba(161, 199, 224, 0.2)");
+    }
     drawRoundedRect(ctx, g.sign.x, g.sign.y, g.sign.w, g.sign.h, 6, "#0f2539", "rgba(161, 199, 224, 0.3)");
 
     const warning = stalledCount > 0;
@@ -1143,30 +1490,83 @@ function drawMap() {
       ctx.fillRect(g.sign.x + 4, g.sign.y + g.sign.h - 5, g.sign.w - 8, 3);
     }
 
-    drawRoundedRect(ctx, g.main.x, g.main.y, g.main.w, g.main.h, 5, "rgba(43, 81, 104, 0.45)", "rgba(146, 198, 228, 0.26)");
+    if (useCityArt) {
+      drawRoundedRect(ctx, g.main.x, g.main.y, g.main.w, g.main.h, 5, "rgba(23, 41, 56, 0.95)");
+      drawRoadSurface(ctx, g.main, "main");
+      drawRoundedRect(ctx, g.main.x, g.main.y, g.main.w, g.main.h, 5, "rgba(0, 0, 0, 0)", "rgba(146, 198, 228, 0.26)");
+    } else {
+      drawRoundedRect(ctx, g.main.x, g.main.y, g.main.w, g.main.h, 5, "rgba(43, 81, 104, 0.45)", "rgba(146, 198, 228, 0.26)");
+    }
     drawText(ctx, "Main Road", g.main.x + 8, g.main.y + 14, "#e8f4df", 9);
 
-    drawRoundedRect(ctx, g.cul.x, g.cul.y, g.cul.w, g.cul.h, 8, "rgba(56, 34, 38, 0.75)", "rgba(209, 108, 108, 0.5)");
-    drawText(ctx, `Cul-de-Sac (${stalledCount} Stalled)`, g.cul.x + 8, g.cul.y + 14, "#ffd5cb", 9);
+    if (useCityArt) {
+      drawRoundedRect(ctx, g.cul.x, g.cul.y, g.cul.w, g.cul.h, 8, "rgba(47, 30, 34, 0.9)");
+      drawRoadSurface(ctx, g.cul, "cul");
+      if (stalledCount > 0) {
+        ctx.fillStyle = "rgba(156, 52, 52, 0.35)";
+        ctx.fillRect(g.cul.x, g.cul.y, g.cul.w, g.cul.h);
+      }
+      drawRoundedRect(ctx, g.cul.x, g.cul.y, g.cul.w, g.cul.h, 8, "rgba(0, 0, 0, 0)", "rgba(209, 108, 108, 0.5)");
+    } else {
+      drawRoundedRect(ctx, g.cul.x, g.cul.y, g.cul.w, g.cul.h, 8, "rgba(56, 34, 38, 0.75)", "rgba(209, 108, 108, 0.5)");
+    }
+  }
 
-    const laneDense = laneRuns.length > 12;
-    if (laneDense) densityTriggered = true;
+  if (useCityArt) {
+    drawBuildingDividers(ctx, lanes.map((item) => item.g));
+  }
 
-    const mainTiles = packTiles(g.main, mainRuns, laneDense);
-    const culTiles = packTiles(g.cul, culRuns, laneDense);
+  for (const item of lanes) {
+    const {
+      lane,
+      g,
+      mainRuns,
+      culRuns,
+      activeCount,
+      waitingCount,
+      stalledCount,
+      oldestStallTs,
+    } = item;
+    drawRoundedRect(ctx, g.sign.x, g.sign.y, g.sign.w, g.sign.h, 6, "#0f2539", "rgba(161, 199, 224, 0.3)");
 
-    for (const tile of mainTiles) {
-      drawRunTile(ctx, tile, lane.id, false);
-      state.ui.tileRects.push({ ...tile, phase: lane.id });
+    const warning = stalledCount > 0;
+    const signName = `${lane.emoji} ${lane.street}${warning ? " ⚠" : ""}`;
+    drawText(ctx, signName, g.sign.x + 8, g.sign.y + 20, "#f4f7de", 11);
+    drawText(ctx, `🚗 ${activeCount} Active | ⏳ ${waitingCount} Waiting | 🛑 ${stalledCount} Stalled`, g.sign.x + 8, g.sign.y + 40, "#d4e5f3", 9);
+    drawText(ctx, `Oldest stall: ${oldestStallTs ? ageText(oldestStallTs) : "n/a"}`, g.sign.x + 8, g.sign.y + 58, "#bfd3e6", 8);
+
+    if (warning) {
+      ctx.fillStyle = "rgba(212, 75, 75, 0.85)";
+      ctx.fillRect(g.sign.x + 4, g.sign.y + g.sign.h - 5, g.sign.w - 8, 3);
     }
 
-    for (const tile of culTiles) {
-      drawRunTile(ctx, tile, lane.id, true);
-      state.ui.tileRects.push({ ...tile, phase: lane.id });
+    drawText(ctx, `Cul-de-Sac (${stalledCount} Stalled)`, g.cul.x + 8, g.cul.y + 14, "#ffd5cb", 9);
+
+    let mainPacked = packActors(g.main, mainRuns, false, "main", lane.id);
+    if (mainPacked.clustered) {
+      densityTriggered = true;
+      mainPacked = packActors(g.main, mainRuns, true, "main", lane.id);
+    }
+
+    let culPacked = packActors(g.cul, culRuns, false, "cul", lane.id);
+    if (culPacked.clustered) {
+      densityTriggered = true;
+      culPacked = packActors(g.cul, culRuns, true, "cul", lane.id);
+    }
+
+    for (const actor of mainPacked.placements) {
+      drawAgentActor(ctx, actor, timeSec);
+      state.ui.actorRects.push(actor);
+    }
+
+    for (const actor of culPacked.placements) {
+      drawAgentActor(ctx, actor, timeSec);
+      state.ui.actorRects.push(actor);
     }
   }
 
   state.ui.mapDensityMode = densityTriggered;
+  state.ui.keyboardFocusIndex = clamp(state.ui.keyboardFocusIndex, 0, Math.max(0, state.ui.actorRects.length - 1));
 
   renderMapOverlay();
 }
@@ -1176,28 +1576,33 @@ function renderMapOverlay() {
   const scaleX = canvas.clientWidth / WORLD.width;
   const scaleY = canvas.clientHeight / WORLD.height;
 
-  state.ui.tileRects.forEach((tile, index) => {
+  state.ui.actorRects.forEach((actor, index) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "map-tile-hit";
-    button.dataset.runId = tile.run.runId;
-    button.dataset.phase = tile.phase;
-    button.style.left = `${Math.round(tile.x * scaleX)}px`;
-    button.style.top = `${Math.round(tile.y * scaleY)}px`;
-    button.style.width = `${Math.max(4, Math.round(tile.w * scaleX))}px`;
-    button.style.height = `${Math.max(4, Math.round(tile.h * scaleY))}px`;
-    button.title = `${tile.run.label} | ${tile.run.operationalStatus}`;
-    button.setAttribute("aria-label", `${tile.run.label}, ${tile.run.operationalStatus}, ${phaseStreetLabel(tile.phase)}`);
+    button.dataset.runId = actor.run.runId;
+    button.dataset.phase = actor.phase;
+    button.dataset.memberCount = String(actor.memberRunIds.length);
+    button.style.left = `${Math.round(actor.x * scaleX)}px`;
+    button.style.top = `${Math.round(actor.y * scaleY)}px`;
+    button.style.width = `${Math.max(4, Math.round(actor.w * scaleX))}px`;
+    button.style.height = `${Math.max(4, Math.round(actor.h * scaleY))}px`;
+    const clusterSuffix = actor.clusterCount > 0 ? ` | clustered +${actor.clusterCount}` : "";
+    button.title = `${actor.run.label} | ${actor.run.operationalStatus}${clusterSuffix}`;
+    button.setAttribute(
+      "aria-label",
+      `${actor.run.label}, ${actor.run.operationalStatus}, ${phaseStreetLabel(actor.phase)}${actor.clusterCount > 0 ? `, cluster of ${actor.memberRunIds.length}` : ""}`
+    );
     button.tabIndex = index === state.ui.keyboardFocusIndex ? 0 : -1;
 
     button.addEventListener("click", () => {
-      selectRun(tile.run.runId, { drawerMode: "overview" });
+      selectRun(actor.run.runId, { drawerMode: "overview" });
     });
 
     button.addEventListener("keydown", (event) => {
       if (!["ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown"].includes(event.key)) return;
       event.preventDefault();
-      const total = state.ui.tileRects.length;
+      const total = state.ui.actorRects.length;
       if (total === 0) return;
       if (event.key === "ArrowRight" || event.key === "ArrowDown") {
         state.ui.keyboardFocusIndex = (index + 1) % total;
@@ -1896,8 +2301,22 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-function boot() {
+async function boot() {
   ensureMainRun();
+  try {
+    await preloadCharacterSprites();
+  } catch (error) {
+    if (!CHARACTER_SPRITES.warned) {
+      CHARACTER_SPRITES.warned = true;
+      console.error("[character-sprites] preload crashed, using fallback silhouette", error);
+    }
+  }
+  try {
+    await preloadCityArt();
+  } catch (error) {
+    state.ui.cityArtEnabled = false;
+    console.error("[city-art] preload crashed, using vector street fallback", error);
+  }
   restoreSettings();
   restoreRunsFromStorage();
   setupEventHandlers();
