@@ -20,18 +20,32 @@ function args(name) {
   return values;
 }
 
-const repo = path.resolve(arg("--repo", process.cwd()));
+const repoArgs = args("--repo");
+const defaultRepo = path.resolve(repoArgs[0] || process.cwd());
 const count = Math.max(1, Number(arg("--count", "3")) || 3);
 const publicPort = Math.max(1, Number(arg("--port", process.env.PORT || "8787")) || 8787);
 const host = process.env.HOST || "0.0.0.0";
 const relayBasePort = Math.max(1025, Number(arg("--relay-base-port", "9800")) || 9800);
 const appServerBasePort = Math.max(1025, Number(arg("--appserver-base-port", "11800")) || 11800);
 const staggerMs = Math.max(0, Number(arg("--stagger-ms", "1200")) || 1200);
+const restartDelayMs = Math.max(0, Number(arg("--restart-delay-ms", "1500")) || 1500);
+const continuous = /^(1|true|yes|on)$/i.test(String(arg("--continuous", "false")));
 const prompts = args("--prompt");
 
-if (!fs.existsSync(repo)) {
-  console.error(`Repo path does not exist: ${repo}`);
-  process.exit(1);
+function repoFor(index) {
+  return path.resolve(repoArgs[index] || defaultRepo);
+}
+
+const assignedRepos = new Set();
+for (let i = 0; i < count; i += 1) {
+  assignedRepos.add(repoFor(i));
+}
+
+for (const repoPath of assignedRepos) {
+  if (!fs.existsSync(repoPath)) {
+    console.error(`Repo path does not exist: ${repoPath}`);
+    process.exit(1);
+  }
 }
 
 const promptDefaults = [
@@ -49,8 +63,12 @@ function promptFor(index) {
 
 const wss = new WebSocketServer({ port: publicPort, host });
 console.log(`Swarm relay listening on ws://${host}:${publicPort}`);
-console.log(`Repo: ${repo}`);
+console.log(`Default repo: ${defaultRepo}`);
+if (repoArgs.length > 1) {
+  console.log(`Agent repo overrides: ${repoArgs.length}`);
+}
 console.log(`Agents: ${count}`);
+console.log(`Continuous: ${continuous ? "on" : "off"}`);
 
 function broadcast(obj) {
   const payload = JSON.stringify(obj);
@@ -61,8 +79,10 @@ function broadcast(obj) {
   }
 }
 
-const children = [];
-const upstreamSockets = [];
+const childrenByAgent = new Map();
+const upstreamByAgent = new Map();
+const cyclesByAgent = new Map();
+const restartTimers = new Set();
 let stopping = false;
 
 function wait(ms) {
@@ -123,14 +143,27 @@ async function startAgent(index) {
   const agentTag = `agent-${agentIndex}`;
   const relayPort = relayBasePort + index;
   const appServerPort = appServerBasePort + index;
+  const repoPath = repoFor(index);
   const prompt = promptFor(index);
+  const cycle = (cyclesByAgent.get(agentTag) || 0) + 1;
+  cyclesByAgent.set(agentTag, cycle);
+
+  const previousUpstream = upstreamByAgent.get(agentTag);
+  if (previousUpstream) {
+    try {
+      previousUpstream.close();
+    } catch {
+      // Ignore close errors.
+    }
+    upstreamByAgent.delete(agentTag);
+  }
 
   const child = spawn(
     process.execPath,
     [
       "relay.mjs",
       "--repo",
-      repo,
+      repoPath,
       "--prompt",
       prompt,
       "--port",
@@ -145,7 +178,7 @@ async function startAgent(index) {
     }
   );
 
-  children.push(child);
+  childrenByAgent.set(agentTag, child);
 
   child.stdout.setEncoding("utf8");
   child.stdout.on("data", (chunk) => {
@@ -174,17 +207,40 @@ async function startAgent(index) {
   });
 
   child.on("exit", (code, signal) => {
+    const current = childrenByAgent.get(agentTag);
+    if (current === child) {
+      childrenByAgent.delete(agentTag);
+    }
+
     broadcast({
       type: "swarm.child.exit",
       ts: Date.now(),
       agent: agentTag,
+      cycle,
       code,
       signal: signal || null,
     });
+
+    if (!stopping && continuous) {
+      const timer = setTimeout(() => {
+        restartTimers.delete(timer);
+        if (stopping) return;
+        startAgent(index).catch((error) => {
+          broadcast({
+            type: "swarm.agent.restart_failed",
+            ts: Date.now(),
+            agent: agentTag,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        });
+      }, restartDelayMs);
+
+      restartTimers.add(timer);
+    }
   });
 
   const upstream = await connectUpstream(`ws://127.0.0.1:${relayPort}`, agentTag);
-  upstreamSockets.push(upstream);
+  upstreamByAgent.set(agentTag, upstream);
 
   upstream.on("message", (data) => {
     const raw = typeof data === "string" ? data : data.toString("utf8");
@@ -213,8 +269,14 @@ async function startAgent(index) {
       type: "swarm.upstream.closed",
       ts: Date.now(),
       agent: agentTag,
+      cycle,
       relayPort,
     });
+
+    const current = upstreamByAgent.get(agentTag);
+    if (current === upstream) {
+      upstreamByAgent.delete(agentTag);
+    }
   });
 
   upstream.on("error", (error) => {
@@ -222,6 +284,7 @@ async function startAgent(index) {
       type: "swarm.upstream.error",
       ts: Date.now(),
       agent: agentTag,
+      cycle,
       relayPort,
       message: error.message,
     });
@@ -231,6 +294,8 @@ async function startAgent(index) {
     type: "swarm.agent.started",
     ts: Date.now(),
     agent: agentTag,
+    cycle,
+    repo: repoPath,
     relayPort,
     appServerPort,
     prompt,
@@ -250,19 +315,26 @@ function shutdown(code = 0) {
   if (stopping) return;
   stopping = true;
 
-  for (const ws of upstreamSockets) {
+  for (const timer of restartTimers) {
+    clearTimeout(timer);
+  }
+  restartTimers.clear();
+
+  for (const ws of upstreamByAgent.values()) {
     try {
       ws.close();
     } catch {
       // ignore close errors
     }
   }
+  upstreamByAgent.clear();
 
-  for (const child of children) {
+  for (const child of childrenByAgent.values()) {
     if (!child.killed) {
       child.kill("SIGTERM");
     }
   }
+  childrenByAgent.clear();
 
   setTimeout(() => {
     wss.close(() => process.exit(code));

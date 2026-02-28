@@ -6,15 +6,15 @@ The product goal is operational clarity for live agent runs: quickly explain wha
 
 The integration goal is to keep the visual pipeline stable while Codex runtime event schemas evolve.
 
-## Judging Relevance
+## Integration Outcomes
 
-This integration must directly support hackathon scoring:
+This integration exists to keep runtime observability practical for developers:
 
-1. Clarity of idea: derived event contract keeps UI language stable and understandable.
+1. Clarity: derived event contract keeps UI language stable and understandable.
 2. Technical execution: live app-server protocol integration is visible and testable.
 3. Completeness: single pipeline powers live, replay, and inspector views.
-4. Impact and insight: mapping enables stuck detection and intervention copy.
-5. Use of Codex: runtime source is Codex app-server, not simulator-only events.
+4. Insight: mapping enables stuck detection and intervention copy.
+5. Traceability: runtime source is Codex app-server, not simulator-only events.
 
 ## Current Input Contract
 
@@ -35,7 +35,7 @@ This project consumes Codex app-server notifications streamed over websocket:
 3. Sends JSON-RPC startup requests (`initialize`, `thread/start`, `turn/start`)
 4. Broadcasts app-server notifications (`{ jsonrpc, method, params }`) to UI websocket clients
 5. Emits lifecycle events (`relay.started`, `appserver.connected`, `appserver.error`, `codex.exit`)
-6. Uses `approvalPolicy: "never"` for non-interactive hackathon runs
+6. Uses `approvalPolicy: "never"` for non-interactive runs
 
 This keeps demo control simple: one relay command launches a run and starts event streaming immediately.
 

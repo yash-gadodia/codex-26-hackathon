@@ -3,13 +3,14 @@
 WIMUT is a live observability dashboard for Codex agent runs.
 It turns raw runtime activity into a visual, operator-friendly control tower so teams can quickly understand what the agent is doing, where effort is going, and when intervention is needed.
 
-## Hackathon Context
+License: MIT (see `/LICENSE`).
 
-In live coding-agent sessions, logs are noisy and hard to interpret under time pressure.
-This project is built for hackathon judges and operators who need fast answers, not deep protocol reading.
+## Open Source
+
+- Contribution guide: `/CONTRIBUTING.md`
+- Community expectations: `/CODE_OF_CONDUCT.md`
 
 WIMUT focuses on one core question:
-
 - What is my agent up to right now?
 
 ## Problem
@@ -26,7 +27,7 @@ Agent coding sessions are hard to observe live. Teams can usually see output, bu
 - Trust: makes agent behavior visible instead of opaque
 - Speed: reduces time to understand current run state
 - Control: enables timely intervention when stuck patterns appear
-- Communication: gives technical and non-technical stakeholders a shared view
+- Communication: gives engineers and stakeholders a shared runtime view
 
 ## Solution
 
@@ -45,7 +46,18 @@ WIMUT combines:
 - Stuck scoring and suggested intervention text
 - Replay/import/export for deterministic demos
 - Simulator pack (`scolded`, `longtask`, `asleep`) for reliability
+- Multi-agent swarm mode for concurrent local testing
 - Optional git-diff helper for ground-truth changed files
+
+## Hackathon Judging Criteria
+
+1. Clarity of idea
+2. Technical execution
+3. Completeness
+4. Impact and insight
+5. Use of Codex
+
+Judging note: simulation is intentionally optimized for clarity over event volume.
 
 ## Architecture (Current)
 
@@ -107,53 +119,38 @@ Then in the UI:
 2. Enable `Use git diff`
 3. Click `Set Repo`
 
-## Hackathon Judging Criteria
+## Multi-Agent Local Testing
 
-This project is explicitly optimized for:
+Use swarm mode to generate concurrent runs:
 
-1. Clarity of idea
-2. Technical execution
-3. Completeness
-4. Impact and insight
-5. Use of Codex
+```bash
+npm run swarm -- --repo /abs/path/to/repo --count 4 --port 8899 --continuous true
+```
 
-## Judging Coverage Checklist
+Open the UI against swarm:
 
-- Clarity of idea: story panel and captions explain current status quickly.
-- Technical execution: live Codex app-server run is visible in map and timeline.
-- Completeness: live mode, inspector, scorecard, replay, simulator all work.
-- Impact and insight: stuck score and intervention guidance are demonstrated.
-- Use of Codex: raw inspector shows Codex-driven notifications in real time.
+- [http://localhost:8788/?ws=ws://localhost:8899](http://localhost:8788/?ws=ws://localhost:8899)
 
-## Demo Script (2 Minutes)
+For judge-friendly local demo inside the UI:
 
-1. Start UI and relay.
-2. State one-line value prop: "We make agent runs observable and intervenable."
-3. Show live websocket status and run lanes.
-4. Trigger activity and explain district mapping (CBD/Bugis/Jurong/Changi).
-5. Open a timeline item and show raw event plus derived meaning.
-6. Show scorecard + stuck intervention suggestion.
-7. Switch to replay and scrub quickly.
-8. Trigger simulator pack to show deterministic fallback reliability.
+- click `Sim calm swarm` for a slow, readable 5-agent lane walkthrough
+- one primary active agent per cycle, occasional secondary activity
+- low error rate to avoid visual overload
 
-## Submission Requirements
+## Railway Auto Redeploy On Push
 
-Submissions close at **6:00 PM local time**.
+This repo includes GitHub Actions workflow:
 
-Required:
+- `.github/workflows/railway-redeploy-on-push.yml`
 
-1. Public GitHub repository
-2. 2 minute video
-3. Optional demo link
+It deploys to Railway on every push.
 
-## Pre-Submission QA
+Required GitHub repository secrets:
 
-1. Confirm repository is public.
-2. Confirm README reflects current architecture and demo flow.
-3. Record and verify a <=2 minute video.
-4. Include at least one visible live Codex app-server run in the video.
-5. Verify replay and simulator fallback paths.
-6. Add optional demo link if hosting is available.
+- `RAILWAY_TOKEN` (required)
+- `RAILWAY_SERVICE_ID` (required)
+- `RAILWAY_PROJECT_ID` (optional)
+- `RAILWAY_ENVIRONMENT_ID` (optional)
 
 ## Troubleshooting
 
@@ -181,11 +178,12 @@ Required:
 ## Repo File Map
 
 - `/relay.mjs` Codex app-server relay (JSON-RPC client) to websocket
+- `/swarm.mjs` multi-agent relay orchestrator for concurrent testing
 - `/server.mjs` static server for `/public` on `8788`
 - `/helper.mjs` optional git diff helper on `8790`
 - `/public/mapping.js` raw event/notification to derived visual events
 - `/public/app.js` runtime, city rendering, lanes, replay, simulator
-- `/docs/HACKATHON.md` judging framing and demo strategy
+- `/docs/OPERATORS.md` operator workflow and runbook notes
 - `/docs/SOUL.md` design and product principles
 - `/docs/OPENAI.md` Codex app-server integration notes
 - `/AGENTS.md` repo-level execution instructions

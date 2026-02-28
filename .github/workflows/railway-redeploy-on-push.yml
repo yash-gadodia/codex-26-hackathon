@@ -1,0 +1,41 @@
+name: Railway Redeploy On Push
+
+on:
+  push:
+
+jobs:
+  deploy:
+    name: Deploy to Railway
+    runs-on: ubuntu-latest
+    container: ghcr.io/railwayapp/cli:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate Railway Secrets
+        shell: bash
+        run: |
+          if [ -z "${{ secrets.RAILWAY_TOKEN }}" ]; then
+            echo "Missing secret: RAILWAY_TOKEN"
+            exit 1
+          fi
+          if [ -z "${{ secrets.RAILWAY_SERVICE_ID }}" ]; then
+            echo "Missing secret: RAILWAY_SERVICE_ID"
+            exit 1
+          fi
+
+      - name: Railway Deploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
+          RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
+          RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -n "${RAILWAY_PROJECT_ID:-}" ] && [ -n "${RAILWAY_ENVIRONMENT_ID:-}" ]; then
+            railway up --service "$RAILWAY_SERVICE_ID" --project "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT_ID"
+          else
+            railway up --service "$RAILWAY_SERVICE_ID"
+          fi

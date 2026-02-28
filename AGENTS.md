@@ -6,25 +6,15 @@ This file defines delivery priorities for contributors and coding agents working
 
 Build and maintain a live observability dashboard for Codex runs that is understandable, reliable in demos, and useful for intervention decisions.
 
-## Non-Negotiable Hackathon Rubric
+## Product Quality Rubric
 
 Every change should improve at least one of these criteria without harming the others:
 
-1. Clarity of idea
+1. Clarity
 2. Technical execution
 3. Completeness
 4. Impact and insight
-5. Use of Codex
-
-## Submission Constraints
-
-Submissions close at **6:00 PM local time**.
-
-Required deliverables:
-
-1. Public GitHub repo
-2. 2 minute video
-3. Optional demo link
+5. Runtime traceability
 
 ## Implementation Priorities
 
@@ -40,20 +30,20 @@ Required deliverables:
 - "What is happening now" must remain instantly legible.
 - Scorecard + intervention text must stay actionable, not decorative.
 
-4. Avoid architecture drift during hackathon window
+4. Avoid architecture drift during active development
 - Prefer focused, reversible changes.
-- Do not introduce large refactors unless they directly improve rubric outcomes.
+- Do not introduce large refactors unless they directly improve reliability or clarity.
 
 ## Definition of Done For Any Feature
 
 - Works in live mode with Codex input.
 - Works in fallback mode (simulator/replay).
 - Does not reduce dashboard clarity.
-- Demo script still fits within 2 minutes.
+- Includes a short reproducible local run/test flow.
 
 ## Required Delivery Behavior
 
-- Always relate implementation decisions back to the 5 judging criteria.
-- Prefer work that improves demo certainty before work that expands scope.
+- Always relate implementation decisions back to the product quality rubric.
+- Prefer work that improves runtime certainty before work that expands scope.
 - Keep documentation synchronized with runtime behavior after every major change.
-- Treat broken live ingestion as priority-zero during hackathon window.
+- Treat broken live ingestion as priority-zero.

@@ -109,6 +109,7 @@ const simPackBtnEl = document.getElementById("simPackBtn");
 const simScoldedBtnEl = document.getElementById("simScoldedBtn");
 const simLongtaskBtnEl = document.getElementById("simLongtaskBtn");
 const simAsleepBtnEl = document.getElementById("simAsleepBtn");
+const simSwarmBtnEl = document.getElementById("simSwarmBtn");
 const runListEl = document.getElementById("runList");
 const stuckBannerEl = document.getElementById("stuckBanner");
 const runBadgeEl = document.getElementById("runBadge");
@@ -177,7 +178,7 @@ const state = {
     timer: null,
   },
   ui: {
-    focusMode: true,
+    focusMode: false,
   },
   simulatorTimers: [],
   persistTimer: null,
@@ -841,7 +842,7 @@ function restoreSettings() {
     // Ignore invalid settings payload.
   }
 
-  state.ui.focusMode = true;
+  state.ui.focusMode = false;
   state.git.repoPath = HARDCODED_REPO_PATH;
   repoPathInputEl.value = state.git.repoPath;
   useGitDiffToggleEl.checked = state.git.useGitDiff;
@@ -2028,6 +2029,10 @@ function setupEventHandlers() {
   simPackBtnEl.addEventListener("click", () => {
     runSimulatorPack();
   });
+
+  simSwarmBtnEl.addEventListener("click", () => {
+    runSwarmSimulation();
+  });
 }
 
 function startReplay(runId) {
@@ -2256,6 +2261,147 @@ function runSimulatorPack() {
   window.setTimeout(() => runScenario("asleep"), 800);
 }
 
+const CALM_SWARM_AGENT_COUNT = 5;
+const CALM_SWARM_TICK_MS = 1500;
+const CALM_SWARM_CYCLES = 12;
+const CALM_SWARM_ERROR_RATE = 0.08;
+const CALM_SWARM_SECONDARY_AGENT_RATE = 0.2;
+const CALM_SWARM_TURN_COMPLETE_RATE = 0.85;
+const CALM_SWARM_TOOL_RATE = 0.7;
+const CALM_SWARM_FILE_RATE = 0.5;
+
+function runSwarmSimulation() {
+  clearSimulatorTimers();
+
+  const swarmIds = Array.from({ length: CALM_SWARM_AGENT_COUNT }, (_, index) => `sim-swarm-${index + 1}`);
+  const phaseOrder = ["planning", "editing", "testing", "reporting", "approval"];
+  const filesByPhase = {
+    planning: ["docs/plan.md", "README.md", "src/task-brief.ts"],
+    editing: ["src/app.ts", "ui/dashboard.tsx", "src/utils/runner.ts"],
+    testing: ["tests/agent-flow.test.ts", "tests/integration/ws.test.ts", "tests/ui/panel.test.ts"],
+    reporting: ["docs/report.md", "docs/notes.md", "src/summary.ts"],
+    approval: ["infra/deploy.yaml", "infra/terraform/main.tf", "src/release.ts"],
+  };
+  const tools = ["Read", "Edit", "Bash", "Search"];
+  const phaseByAgent = new Map(swarmIds.map((id) => [id, 0]));
+  const lastOutcomeByAgent = new Map();
+
+  let tick = 0;
+  const maxTicks = CALM_SWARM_CYCLES;
+
+  const timer = window.setInterval(() => {
+    const primaryIndex = tick % swarmIds.length;
+    const primaryAgent = swarmIds[primaryIndex];
+    const activeAgents = [primaryAgent];
+
+    if (Math.random() < CALM_SWARM_SECONDARY_AGENT_RATE) {
+      const secondaryAgent = swarmIds[(primaryIndex + 2) % swarmIds.length];
+      if (secondaryAgent !== primaryAgent) {
+        activeAgents.push(secondaryAgent);
+      }
+    }
+
+    for (const runId of activeAgents) {
+      const phaseIndex = phaseByAgent.get(runId) || 0;
+      const phase = phaseOrder[phaseIndex % phaseOrder.length];
+      const pool = filesByPhase[phase] || filesByPhase.editing;
+      const filePath = pool[Math.floor(Math.random() * pool.length)];
+      const tool = tools[Math.floor(Math.random() * tools.length)];
+
+      ingestRawEvent(
+        {
+          type: "turn.started",
+          run_id: runId,
+          ts: nowMs(),
+          message: `Swarm ${runId} ${phase}`,
+        },
+        { source: "sim", transient: true, allowGitDiff: false }
+      );
+
+      if (Math.random() < CALM_SWARM_TOOL_RATE) {
+        ingestRawEvent(
+          {
+            type: "tool.run",
+            run_id: runId,
+            ts: nowMs(),
+            tool,
+            message: `${phase}: ${tool} on ${filePath}`,
+            path: filePath,
+          },
+          { source: "sim", transient: true, allowGitDiff: false }
+        );
+      }
+
+      if (Math.random() < CALM_SWARM_FILE_RATE) {
+        ingestRawEvent(
+          {
+            type: "file.changed",
+            run_id: runId,
+            ts: nowMs(),
+            message: `${phase}: updated ${filePath}`,
+            path: filePath,
+          },
+          { source: "sim", transient: true, allowGitDiff: false }
+        );
+      }
+
+      const lastOutcome = lastOutcomeByAgent.get(runId) || "success";
+      const shouldFail = Math.random() < CALM_SWARM_ERROR_RATE && lastOutcome !== "failed";
+      if (shouldFail) {
+        ingestRawEvent(
+          {
+            type: "tool.failed",
+            run_id: runId,
+            ts: nowMs(),
+            message: `${phase}: intermittent failure on ${filePath}`,
+            path: filePath,
+          },
+          { source: "sim", transient: true, allowGitDiff: false }
+        );
+        lastOutcomeByAgent.set(runId, "failed");
+      } else {
+        ingestRawEvent(
+          {
+            type: "item.succeeded",
+            run_id: runId,
+            ts: nowMs(),
+            message: `${phase}: validated ${filePath}`,
+            path: filePath,
+          },
+          { source: "sim", transient: true, allowGitDiff: false }
+        );
+        lastOutcomeByAgent.set(runId, "success");
+      }
+
+      if (Math.random() < CALM_SWARM_TURN_COMPLETE_RATE) {
+        ingestRawEvent(
+          {
+            type: "turn.completed",
+            run_id: runId,
+            ts: nowMs(),
+            message: `${phase} complete`,
+          },
+          { source: "sim", transient: true, allowGitDiff: false }
+        );
+      }
+
+      phaseByAgent.set(runId, (phaseIndex + 1) % phaseOrder.length);
+    }
+
+    const selectedRun = `explicit:${sanitizeRunIdentity(primaryAgent)}`;
+    if (state.runs.has(selectedRun)) {
+      state.selectedRunId = selectedRun;
+    }
+
+    tick += 1;
+    if (tick >= maxTicks) {
+      clearInterval(timer);
+    }
+  }, CALM_SWARM_TICK_MS);
+
+  state.simulatorTimers.push(timer);
+}
+
 let previousFrameTime = performance.now();
 
 function frame(now) {
@@ -2296,6 +2442,7 @@ window.dispatchAgentEvent = (event) => {
 window.agentVizDemo = {
   runScenario,
   runSimulatorPack,
+  runSwarmSimulation,
   dispatch: (event) => window.dispatchAgentEvent(event),
 };
 

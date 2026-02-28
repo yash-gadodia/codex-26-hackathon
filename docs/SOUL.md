@@ -4,14 +4,14 @@
 
 - Observability first: every animation maps to a derived event.
 - Resilience over schema lock-in: unknown event shapes should still produce meaningful visuals.
-- Demo reliability: simulator mode and replay controls must always be available.
+- Runtime reliability: simulator mode and replay controls must always be available.
 - Actionable insight: scorecard and stuck interventions should guide operator decisions.
 
-## Judging Alignment
+## Product Quality Alignment
 
-Everything in this project should map to the official judging criteria:
+Everything in this project should reinforce core product outcomes:
 
-1. Clarity of idea
+1. Clarity
 - UI must explain "what is happening now" within 5 seconds.
 - Labels and captions should use plain language over protocol jargon.
 
@@ -21,14 +21,14 @@ Everything in this project should map to the official judging criteria:
 
 3. Completeness
 - End-to-end flow should work: ingest -> derive -> visualize -> inspect -> replay.
-- Simulator and replay are mandatory reliability paths for stage demos.
+- Simulator and replay are mandatory reliability paths for local testing and demos.
 
 4. Impact and insight
 - Dashboard must not only display activity, but recommend next interventions.
 - Stuck detection and scorecard should support real operator decisions.
 
-5. Use of Codex
-- Demo must clearly show Codex-driven events, not synthetic-only behavior.
+5. Runtime traceability
+- Sessions must clearly show Codex-driven events, not synthetic-only behavior.
 - Raw event inspector should make Codex signal provenance obvious.
 
 ## Singapore Pixel Theme
@@ -93,4 +93,5 @@ Line:
 
 - Fast read in under 5 seconds
 - Dev-friendly humor without noise
-- Keep labels explicit so judges can follow quickly
+- Keep labels explicit so developers can follow quickly
+- Prefer readable choreography over dense activity bursts
