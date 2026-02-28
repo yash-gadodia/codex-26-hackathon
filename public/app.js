@@ -82,6 +82,12 @@ const CHARACTER_SPRITES = {
   byState: {},
   warned: false,
 };
+const CHARACTER_SHEET = {
+  width: 112,
+  height: 96,
+  frameW: 16,
+  frameH: 16,
+};
 
 const canvas = document.getElementById("cityCanvas");
 const ctx = canvas.getContext("2d");
@@ -1618,6 +1624,26 @@ function characterSpriteForRun(visualState) {
   return CHARACTER_SPRITES.byState[visualState] || null;
 }
 
+function isCharacterSheetImage(sprite) {
+  if (!sprite) return false;
+  const w = sprite.naturalWidth || sprite.width || 0;
+  const h = sprite.naturalHeight || sprite.height || 0;
+  return w === CHARACTER_SHEET.width && h === CHARACTER_SHEET.height;
+}
+
+function spriteFrameForState(visualState, timeSec) {
+  const baseRow = 0;
+  if (visualState === "active") {
+    return { col: Math.floor((timeSec * 5) % 4), row: baseRow };
+  }
+  if (visualState === "approval") return { col: 2, row: baseRow };
+  if (visualState === "loop") return { col: 5, row: baseRow };
+  if (visualState === "blocked") return { col: 4, row: baseRow };
+  if (visualState === "failed") return { col: 6, row: baseRow };
+  if (visualState === "done") return { col: 1, row: baseRow };
+  return { col: 0, row: baseRow };
+}
+
 function drawFallbackCharacter(target, x, y, w, h, color = "#dde8f4") {
   drawRoundedRect(target, x + Math.floor(w * 0.34), y + Math.floor(h * 0.06), Math.floor(w * 0.32), Math.floor(h * 0.24), 6, color);
   drawRoundedRect(target, x + Math.floor(w * 0.22), y + Math.floor(h * 0.28), Math.floor(w * 0.56), Math.floor(h * 0.56), 8, color);
@@ -1704,7 +1730,14 @@ function drawAgentActor(target, placement, timeSec) {
   target.save();
   target.globalAlpha = motion.alpha;
   if (sprite) {
-    target.drawImage(sprite, baseX, baseY, spriteW, spriteH);
+    if (isCharacterSheetImage(sprite)) {
+      const frame = spriteFrameForState(visualState, timeSec);
+      const sx = frame.col * CHARACTER_SHEET.frameW;
+      const sy = frame.row * CHARACTER_SHEET.frameH;
+      target.drawImage(sprite, sx, sy, CHARACTER_SHEET.frameW, CHARACTER_SHEET.frameH, baseX, baseY, spriteW, spriteH);
+    } else {
+      target.drawImage(sprite, baseX, baseY, spriteW, spriteH);
+    }
   } else {
     drawFallbackCharacter(target, baseX, baseY, spriteW, spriteH, "#dce8f6");
   }
