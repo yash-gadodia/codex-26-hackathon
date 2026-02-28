@@ -269,6 +269,42 @@ body.colorblind {
   min-height: 0;
 }
 
+.demo-script-banner {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 12;
+  min-width: min(680px, calc(100% - 24px));
+  max-width: calc(100% - 24px);
+  border: 1px solid rgba(141, 188, 218, 0.6);
+  border-radius: 10px;
+  background: rgba(8, 33, 54, 0.9);
+  padding: 8px 12px;
+  box-shadow: 0 8px 18px rgba(7, 28, 44, 0.35);
+}
+
+.demo-script-label {
+  display: inline-block;
+  margin-bottom: 2px;
+  border-radius: 999px;
+  border: 1px solid rgba(149, 199, 232, 0.6);
+  background: rgba(18, 56, 84, 0.8);
+  color: #e6f4ff;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.demo-script-text {
+  margin: 0;
+  color: #dcefff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .pane-wrap {
   border: 1px solid rgba(165, 204, 227, 0.35);
   border-radius: 10px;

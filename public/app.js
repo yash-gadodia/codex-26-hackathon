@@ -120,6 +120,8 @@ const topSummaryBarEl = document.getElementById("topSummaryBar");
 const mapViewportEl = document.getElementById("mapViewport");
 const mapOverlayEl = document.getElementById("mapOverlay");
 const runBadgeEl = document.getElementById("runBadge");
+const demoScriptBannerEl = document.getElementById("demoScriptBanner");
+const demoScriptTextEl = document.getElementById("demoScriptText");
 
 const approvalStreetEl = document.getElementById("approvalStreet");
 const approvalStreetToggleEl = document.getElementById("approvalStreetToggle");
@@ -212,6 +214,8 @@ const state = {
     overlaySignature: "",
     queueSignature: "",
     approvalSignature: "",
+    demoScriptVisible: false,
+    demoScriptText: "",
   },
   simulatorTimers: [],
   persistTimer: null,
@@ -385,6 +389,14 @@ function showOpsToast(text) {
   state.ui.criticalToastUntil = nowMs() + 3000;
   opsToastEl.textContent = text;
   opsToastEl.hidden = false;
+}
+
+function setDemoScriptBanner(text = "", visible = false) {
+  state.ui.demoScriptVisible = Boolean(visible);
+  state.ui.demoScriptText = text || "";
+  if (!demoScriptBannerEl || !demoScriptTextEl) return;
+  demoScriptTextEl.textContent = state.ui.demoScriptText || "Step 1: Agents start working across lanes.";
+  demoScriptBannerEl.hidden = !state.ui.demoScriptVisible;
 }
 
 function phaseStreetLabel(phaseId) {
@@ -2136,6 +2148,7 @@ function runScenario(name, options = {}) {
 
 function runSimulatorPack() {
   clearSimulatorTimers();
+  setDemoScriptBanner("", false);
   runScenario("scolded");
   window.setTimeout(() => runScenario("longtask"), 400);
   window.setTimeout(() => runScenario("asleep"), 800);
@@ -2158,6 +2171,7 @@ function phaseMessage(phase, cycle) {
 function runSwimlaneDemo() {
   clearSimulatorTimers();
   setAgentDrawerOpen(false);
+  setDemoScriptBanner("Step 1: Agents fan out across plan/execute/verify/report lanes.", true);
 
   const demoAgents = [
     { id: "sim-lane-plan-1", phase: "plan" },
@@ -2174,6 +2188,11 @@ function runSwimlaneDemo() {
   const timer = window.setInterval(() => {
     if (cycle >= DEMO_SWIMLANE_CYCLES) {
       clearInterval(timer);
+      setDemoScriptBanner("Demo complete: interventions resolved and agents finished.", true);
+      const hideTimer = window.setTimeout(() => {
+        setDemoScriptBanner("", false);
+        clearTimeout(hideTimer);
+      }, 3200);
       return;
     }
 
@@ -2236,6 +2255,7 @@ function runSwimlaneDemo() {
 
       if (cycle === 3 && agent.id === "sim-lane-verify-1") {
         needsManualIntervention = true;
+        setDemoScriptBanner("Step 2: Verification agent is stalled. Open Ops and unblock it.", true);
         ingestRawEvent({
           ...base,
           type: "note",
@@ -2251,6 +2271,7 @@ function runSwimlaneDemo() {
 
       if ((cycle === 5 && agent.id === "sim-lane-report-1") || (cycle === 8 && agent.id === "sim-lane-exec-2")) {
         needsManualIntervention = true;
+        setDemoScriptBanner("Step 3: Approval gate triggered. Use Approval Street to continue.", true);
         ingestRawEvent({
           ...base,
           type: "note",
@@ -2261,6 +2282,9 @@ function runSwimlaneDemo() {
       }
 
       if (!needsManualIntervention && (cycle === DEMO_SWIMLANE_CYCLES - 1 || cycle % 2 === 1)) {
+        if (cycle > 8) {
+          setDemoScriptBanner("Step 4: Agents recover and complete work after interventions.", true);
+        }
         ingestRawEvent({
           ...base,
           type: "turn.completed",
