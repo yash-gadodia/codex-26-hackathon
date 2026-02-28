@@ -43,13 +43,13 @@ const STATUS_ORDER = { active: 0, waiting: 1, "needs-human": 2, done: 3, blocked
 const CULDESAC_BLOCKERS = new Set(["verify_loop", "tool_fail_loop", "no_progress", "dependency_wait"]);
 
 const STATUS_TOKENS = {
-  active: { icon: "▶", className: "state-active", color: "#1aa55a" },
-  waiting: { icon: "⏳", className: "state-waiting", color: "#d09218" },
-  "needs-human": { icon: "🧍", className: "state-needs-human", color: "#5d7ef6" },
-  blocked: { icon: "❗", className: "state-blocked", color: "#d55c45" },
-  loop: { icon: "🔁", className: "state-loop", color: "#bf4f3d" },
-  failed: { icon: "✖", className: "state-failed", color: "#9d2f2f" },
-  done: { icon: "✔", className: "state-done", color: "#517087" },
+  active: { icon: "▶", className: "state-active", color: "#2aa65a" },
+  waiting: { icon: "⏳", className: "state-waiting", color: "#c5911b" },
+  "needs-human": { icon: "🧍", className: "state-needs-human", color: "#7b5ce1" },
+  blocked: { icon: "❗", className: "state-blocked", color: "#cb4b4b" },
+  loop: { icon: "🔁", className: "state-loop", color: "#cb4b4b" },
+  failed: { icon: "✖", className: "state-failed", color: "#b73535" },
+  done: { icon: "✔", className: "state-done", color: "#76838f" },
 };
 
 const BLOCKER_ICON = {
@@ -110,6 +110,8 @@ const colorblindToggleEl = document.getElementById("colorblindToggle");
 const tileSizeSelectEl = document.getElementById("tileSizeSelect");
 
 const attentionQueueEl = document.getElementById("attentionQueue");
+const attentionQueueHeadingEl = document.getElementById("attentionQueueHeading");
+const attentionQueueCountEl = document.getElementById("attentionQueueCount");
 const agentSearchEl = document.getElementById("agentSearch");
 const phaseFilterEl = document.getElementById("phaseFilter");
 const statusFilterEl = document.getElementById("statusFilter");
@@ -507,6 +509,25 @@ function labelSourceSuffix(run) {
   if (run.labelSource === "developer_name") return "from developer name";
   if (run.labelSource === "thread_title") return "from thread title";
   return "fallback";
+}
+
+function shortRunIdLabel(runId) {
+  const raw = String(runId || "")
+    .replace(/^explicit:/, "")
+    .replace(/^replay:/, "")
+    .trim();
+  if (!raw) return "run";
+  const trimmed = raw.length > 18 ? raw.slice(-18) : raw;
+  return trimmed;
+}
+
+function statusFamily(status) {
+  if (status === "active") return "active";
+  if (status === "waiting") return "waiting";
+  if (status === "needs-human") return "needs-human";
+  if (status === "blocked" || status === "loop" || status === "failed") return "blocked";
+  if (status === "done") return "done";
+  return "waiting";
 }
 
 function deepFindCommandCandidate(value, depth = 0) {
@@ -1943,9 +1964,30 @@ function drawAgentActor(target, placement, timeSec) {
   const token = STATUS_TOKENS[run.operationalStatus] || STATUS_TOKENS.waiting;
   const selected = run.runId === state.ui.selectedAgentRunId;
   const highlighted = run.runId === state.ui.highlightRunId || (run.highlight && run.highlight.until > nowMs());
+  const family = statusFamily(run.operationalStatus);
   const border = selected || highlighted ? "#f7e085" : token.color;
+  const fillByFamily = {
+    active: "rgba(18, 54, 34, 0.56)",
+    waiting: "rgba(60, 49, 14, 0.56)",
+    "needs-human": "rgba(45, 30, 69, 0.56)",
+    blocked: "rgba(67, 25, 29, 0.6)",
+    done: "rgba(41, 47, 54, 0.52)",
+  };
+  const glowByFamily = {
+    active: "rgba(54, 173, 99, 0.2)",
+    waiting: "rgba(201, 152, 37, 0.22)",
+    "needs-human": "rgba(123, 92, 225, 0.25)",
+    blocked: "rgba(206, 75, 75, 0.25)",
+    done: "rgba(122, 132, 142, 0.18)",
+  };
+  const fill = fillByFamily[family] || "rgba(8, 20, 32, 0.55)";
 
-  drawRoundedRect(target, x, y, w, h, 6, "rgba(8, 20, 32, 0.55)", border);
+  if (!selected && !highlighted) {
+    target.fillStyle = glowByFamily[family] || "transparent";
+    target.fillRect(x - 1, y - 1, w + 2, h + 2);
+  }
+
+  drawRoundedRect(target, x, y, w, h, 6, fill, border);
 
   const motion = motionForActor(placement, visualState, timeSec, state.ui.reducedMotion);
   const sprite = characterSpriteForRun(visualState);
@@ -2285,6 +2327,13 @@ function renderNeedsAttentionQueue(runs) {
   const queueRuns = runs
     .filter((run) => run.requiresHumanGate || (ATTENTION_RANK[run.needsAttentionSeverity] || 0) >= ATTENTION_RANK.info)
     .sort(queueSort);
+  const hasCriticalQueueItem = queueRuns.some((run) => run.needsAttentionSeverity === "critical");
+  if (attentionQueueHeadingEl) attentionQueueHeadingEl.setAttribute("aria-label", `Needs Attention ${queueRuns.length}`);
+  if (attentionQueueCountEl) {
+    attentionQueueCountEl.textContent = `· ${queueRuns.length}`;
+    attentionQueueCountEl.classList.toggle("queue-count-red", hasCriticalQueueItem);
+    attentionQueueCountEl.classList.toggle("queue-count-amber", !hasCriticalQueueItem);
+  }
   const nowBucket = Math.floor(nowMs() / 1000);
   let signature = `${nowBucket}|${state.ui.selectedAgentRunId || ""}|${queueRuns.length}`;
   for (const run of queueRuns) {
@@ -2298,27 +2347,32 @@ function renderNeedsAttentionQueue(runs) {
   for (const run of queueRuns) {
     const token = STATUS_TOKENS[run.operationalStatus] || STATUS_TOKENS.waiting;
     const li = document.createElement("li");
-    li.className = `attn-card ${severityClass(run.needsAttentionSeverity)}${run.runId === state.ui.selectedAgentRunId ? " selected" : ""}`;
+    const runSeverityClass = severityClass(run.needsAttentionSeverity);
+    const isBlockedLike = run.operationalStatus === "blocked" || run.operationalStatus === "loop" || run.operationalStatus === "failed";
+    const isNeedsHuman = run.operationalStatus === "needs-human" || run.requiresHumanGate;
+    li.className = `attn-card ${runSeverityClass}${run.runId === state.ui.selectedAgentRunId ? " selected" : ""}${isBlockedLike ? " attn-card-blocked" : ""}${isNeedsHuman ? " attn-card-needs-human" : ""}`;
     li.dataset.runId = run.runId;
 
     const iconType = inferAgentType(run) === "simulated" ? "🧪" : inferAgentType(run) === "manual" ? "🛠" : "🤖";
     const phaseLabel = run.requiresHumanGate ? "approval" : run.currentPhase;
     const latestAlert = run.alertFeed.at(-1);
     const alertText = latestAlert?.message || run.blockedReason || run.approvalSummary || "Attention required";
+    const blockedAgeText = run.blockedSinceTs ? ageText(run.blockedSinceTs) : "n/a";
+    const detailsText = run.needsAttentionSeverity === "critical" ? `<div class="attn-sub">${alertText}</div>` : "";
 
     li.innerHTML = `
       <div class="attn-head">
         <span>${iconType} ${displayLabel(run)}</span>
         <span class="state-badge ${token.className}">${token.icon} ${run.operationalStatus}</span>
       </div>
-      <div class="attn-sub">Phase: ${phaseLabel}</div>
-      <div class="attn-sub">${alertText}</div>
-      <div class="attn-sub">Blocked since: ${run.blockedSinceTs ? ageText(run.blockedSinceTs) : "n/a"}</div>
+      <div class="attn-blocked-age">${blockedAgeText.toUpperCase()} BLOCKED</div>
+      <div class="attn-sub">${phaseLabel}</div>
+      ${detailsText}
       <div class="attn-actions">
-        <button type="button" data-action="approve" data-run-id="${run.runId}">Approve</button>
-        <button type="button" data-action="restart" data-run-id="${run.runId}">Restart</button>
-        <button type="button" data-action="failure" data-run-id="${run.runId}">View failure</button>
-        <button type="button" data-action="input" data-run-id="${run.runId}">Provide input</button>
+        <button type="button" class="attn-btn-primary" data-action="approve" data-run-id="${run.runId}">Approve</button>
+        <button type="button" class="attn-btn-secondary" data-action="restart" data-run-id="${run.runId}">Restart</button>
+        <button type="button" class="attn-btn-secondary" data-action="failure" data-run-id="${run.runId}">View failure</button>
+        <button type="button" class="attn-btn-secondary" data-action="input" data-run-id="${run.runId}">Provide input</button>
       </div>
     `;
 
@@ -2414,7 +2468,8 @@ function renderPaneView(runs) {
 
   for (const run of list) {
     const card = document.createElement("article");
-    card.className = `pane-card${run.runId === state.ui.selectedAgentRunId ? " active" : ""}`;
+    const family = statusFamily(run.operationalStatus);
+    card.className = `pane-card pane-status-${family}${run.runId === state.ui.selectedAgentRunId ? " active" : ""}`;
     card.tabIndex = 0;
     card.dataset.runId = run.runId;
     const token = STATUS_TOKENS[run.operationalStatus] || STATUS_TOKENS.waiting;
@@ -2430,7 +2485,10 @@ function renderPaneView(runs) {
 
     card.innerHTML = `
       <div class="pane-head">
-        <div class="pane-title">${displayLabel(run)}</div>
+        <div>
+          <div class="pane-title">${displayLabel(run)}</div>
+          <div class="pane-subid">${shortRunIdLabel(run.runId)}</div>
+        </div>
         <span class="state-badge ${token.className}">${token.icon} ${run.operationalStatus}</span>
       </div>
       <div class="pane-meta">
@@ -3095,29 +3153,6 @@ function setupEventHandlers() {
 
   opsDevtoolsToggleEl.addEventListener("click", () => {
     setOpsDevtoolsExpanded(!state.ui.opsDevtoolsExpanded);
-  });
-
-  summaryNeedsAttentionEl.addEventListener("click", () => {
-    setOpsDrawerOpen(true);
-    attentionQueueEl.scrollTo({ top: 0, behavior: "smooth" });
-  });
-
-  summaryStalledEl.addEventListener("click", () => {
-    setOpsDrawerOpen(true);
-    attentionQueueEl.scrollTo({ top: 0, behavior: "smooth" });
-  });
-
-  summaryApprovalsEl.addEventListener("click", () => {
-    if (state.ui.approvalOverlayVisible) {
-      approvalStreetEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    } else {
-      setOpsDrawerOpen(true);
-    }
-  });
-
-  summaryFirstAnomalyEl.addEventListener("click", () => {
-    if (!state.ui.summaryFocusRunId) return;
-    jumpToFirstAnomaly(state.ui.summaryFocusRunId);
   });
 
   summaryPrimaryCtaEl.addEventListener("click", () => {

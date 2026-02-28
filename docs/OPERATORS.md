@@ -27,6 +27,13 @@ The dashboard tracks:
 - error and success counts
 - stuck score from repeated-failure and inactivity heuristics
 
+Top-bar scan order is intentionally operational:
+1. `System health` cluster (healthy/degraded/blocked)
+2. `Review Alerts (N)` action
+3. Session context and runtime/anomaly context
+
+City/Panes view controls are placed by the canvas as segmented controls, not inside top metadata.
+
 ## Technical One-Liner
 
 `relay.mjs` runs `codex app-server` (`initialize -> thread/start -> turn/start`), streams notifications to `ws://localhost:8787`, and the frontend maps those events into stable operational signals.
@@ -41,7 +48,7 @@ The dashboard tracks:
 6. Confirm websocket status is `connected`
 7. Inspect a timeline event and compare raw payload vs derived meaning
 8. Use scorecard + intervention text to decide whether to continue, redirect, or stop
-9. Use the top-bar `Review Alerts` button to jump directly into intervention queue workflows
+9. Use the top-bar `Review Alerts (N)` button to jump directly into intervention queue workflows
 
 ## Multi-Agent Stress Flow
 

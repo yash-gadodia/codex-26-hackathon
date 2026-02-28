@@ -106,8 +106,11 @@
       </div>
 
       <section class="queue-section" aria-label="Needs attention queue">
-        <div class="section-head tight">
-          <h2>Needs Attention Queue</h2>
+        <div class="section-head tight queue-head-strip">
+          <h2 id="attentionQueueHeading" class="queue-heading">
+            <span class="queue-heading-label">Needs Attention</span>
+            <span id="attentionQueueCount" class="queue-heading-count queue-count-amber">&middot; 0</span>
+          </h2>
         </div>
         <ul id="attentionQueue" class="attention-queue"></ul>
       </section>
