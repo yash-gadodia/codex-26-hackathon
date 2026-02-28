@@ -1536,10 +1536,10 @@ function renderGlobalHud() {
   opsTabBadgeEl.classList.toggle("critical", criticalCount > 0);
   opsTabEl.classList.toggle("pulse", criticalCount > 0 && !state.ui.reducedMotion);
 
-  summaryPrimaryCtaEl.textContent = `Review Alerts (${actionCount})`;
+  summaryPrimaryCtaEl.textContent = `Review Agents (${actionCount})`;
   summaryPrimaryCtaEl.dataset.action = "open-ops";
   summaryPrimaryCtaEl.classList.toggle("attention", actionCount > 0);
-  summaryPrimaryCtaEl.setAttribute("aria-label", `Review Alerts (${actionCount})`);
+  summaryPrimaryCtaEl.setAttribute("aria-label", `Review Agents (${actionCount})`);
 
   const hasActiveRuns = runs.some((item) => item.operationalStatus === "active" || item.operationalStatus === "waiting");
   const hasOpenIssues = actionCount > 0;
