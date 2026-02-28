@@ -205,6 +205,17 @@ input[type="range"] {
   background: linear-gradient(180deg, rgba(13, 40, 62, 0.92), rgba(9, 24, 37, 0.92));
 }
 
+.view-toggle {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 6px;
+}
+
+.view-toggle button.active {
+  border-color: #f7e085;
+  background: rgba(88, 70, 22, 0.95);
+}
+
 .map-wrap {
   position: relative;
   border: 1px solid rgba(165, 204, 227, 0.35);
@@ -214,12 +225,118 @@ input[type="range"] {
   min-height: 0;
 }
 
+.pane-wrap {
+  border: 1px solid rgba(165, 204, 227, 0.35);
+  border-radius: 10px;
+  background: #0d2437;
+  min-height: min(70vh, 880px);
+  padding: 10px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 10px;
+  overflow: auto;
+}
+
+.pane-card {
+  border: 1px solid rgba(161, 199, 224, 0.35);
+  border-radius: 8px;
+  background: rgba(10, 27, 41, 0.95);
+  padding: 8px;
+  display: grid;
+  gap: 7px;
+  cursor: pointer;
+}
+
+.pane-card.active {
+  border-color: #f7e085;
+  box-shadow: 0 0 0 1px rgba(247, 224, 133, 0.35) inset;
+}
+
+.pane-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  align-items: center;
+}
+
+.pane-title {
+  font-size: 12px;
+  color: #e6f3ff;
+}
+
+.pane-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+  color: #bdd2e2;
+}
+
+.pane-step {
+  font-size: 12px;
+  color: #f3f8ec;
+}
+
+.pane-log {
+  border: 1px solid rgba(151, 189, 213, 0.25);
+  border-radius: 6px;
+  background: rgba(5, 18, 29, 0.95);
+  padding: 7px;
+  max-height: 118px;
+  overflow: auto;
+  display: grid;
+  gap: 4px;
+}
+
+.pane-log-line {
+  font-size: 11px;
+  color: #b8cde0;
+}
+
+.pane-log-line.kind-tool {
+  color: #ffe5a8;
+}
+
+.pane-log-line.kind-file {
+  color: #a8d2ff;
+}
+
+.pane-log-line.kind-error {
+  color: #ffb2b2;
+}
+
+.pane-log-line.kind-success {
+  color: #b8f7c6;
+}
+
+.pane-empty {
+  grid-column: 1 / -1;
+  font-size: 13px;
+  color: #b7cfe1;
+}
+
 #cityCanvas {
   display: block;
   width: 100%;
   height: auto;
   max-height: min(70vh, 880px);
   image-rendering: pixelated;
+}
+
+body.view-city .map-wrap {
+  display: block;
+}
+
+body.view-city .pane-wrap {
+  display: none;
+}
+
+body.view-pane .map-wrap {
+  display: none;
+}
+
+body.view-pane .pane-wrap {
+  display: grid;
 }
 
 .map-overlay {

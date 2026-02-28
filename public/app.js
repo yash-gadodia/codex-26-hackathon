@@ -80,8 +80,11 @@ const hudLaneEl = document.getElementById("hudLane");
 const hudRuntimeEl = document.getElementById("hudRuntime");
 const hudBlockedSinceEl = document.getElementById("hudBlockedSince");
 const hudFirstAnomalyEl = document.getElementById("hudFirstAnomaly");
+const cityViewBtnEl = document.getElementById("cityViewBtn");
+const paneViewBtnEl = document.getElementById("paneViewBtn");
 const mapViewportEl = document.getElementById("mapViewport");
 const mapOverlayEl = document.getElementById("mapOverlay");
+const paneViewportEl = document.getElementById("paneViewport");
 const runBadgeEl = document.getElementById("runBadge");
 
 const approvalCountEl = document.getElementById("approvalCount");
@@ -131,6 +134,7 @@ const state = {
     timer: null,
   },
   ui: {
+    viewMode: "city",
     selectedAgentRunId: null,
     focusedPhase: "execute",
     reducedMotion: false,
@@ -555,6 +559,7 @@ function persistRunsToStorage() {
 
 function persistSettings() {
   const payload = {
+    viewMode: state.ui.viewMode,
     reducedMotion: state.ui.reducedMotion,
     colorblindPalette: state.ui.colorblindPalette,
     tileSize: state.ui.tileSize,
@@ -571,6 +576,7 @@ function persistSettings() {
 function restoreSettings() {
   try {
     const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
+    if (["city", "pane"].includes(parsed.viewMode)) state.ui.viewMode = parsed.viewMode;
     if (typeof parsed.reducedMotion === "boolean") state.ui.reducedMotion = parsed.reducedMotion;
     if (typeof parsed.colorblindPalette === "boolean") state.ui.colorblindPalette = parsed.colorblindPalette;
     if (["s", "m", "l"].includes(parsed.tileSize)) state.ui.tileSize = parsed.tileSize;
@@ -595,6 +601,14 @@ function restoreSettings() {
   typeFilterEl.value = state.ui.queueFilters.agentType;
   document.body.classList.toggle("reduced-motion", state.ui.reducedMotion);
   document.body.classList.toggle("colorblind", state.ui.colorblindPalette);
+  applyViewMode();
+}
+
+function applyViewMode() {
+  document.body.classList.toggle("view-city", state.ui.viewMode === "city");
+  document.body.classList.toggle("view-pane", state.ui.viewMode === "pane");
+  cityViewBtnEl.classList.toggle("active", state.ui.viewMode === "city");
+  paneViewBtnEl.classList.toggle("active", state.ui.viewMode === "pane");
 }
 
 function restoreRunsFromStorage() {
@@ -1203,12 +1217,69 @@ function renderWsStatus() {
   wsStatusEl.textContent = `WS: ${state.ws.status}`;
 }
 
+function kindClassFromSummary(summary) {
+  const value = String(summary || "").toLowerCase();
+  if (value.includes("error") || value.includes("failed")) return "kind-error";
+  if (value.includes("changed file")) return "kind-file";
+  if (value.includes("using tool")) return "kind-tool";
+  if (value.includes("success")) return "kind-success";
+  return "";
+}
+
+function renderPaneView(runs) {
+  paneViewportEl.innerHTML = "";
+
+  if (!runs || runs.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "pane-empty";
+    empty.textContent = "No agents yet. Start a run or use Simulator Pack.";
+    paneViewportEl.append(empty);
+    return;
+  }
+
+  const ordered = [...runs].sort((a, b) => (b.lastActionTs || 0) - (a.lastActionTs || 0));
+  for (const run of ordered) {
+    const token = STATUS_TOKENS[run.operationalStatus] || STATUS_TOKENS.waiting;
+    const latest = run.timeline.at(-1);
+    const card = document.createElement("article");
+    card.className = `pane-card${run.runId === state.ui.selectedAgentRunId ? " active" : ""}`;
+    card.dataset.runId = run.runId;
+
+    const logs = run.timeline.slice(-8).reverse();
+    const logHtml = logs
+      .map((event) => `<div class="pane-log-line ${kindClassFromSummary(event.summary)}">${new Date(event.ts).toLocaleTimeString()} | ${event.summary}</div>`)
+      .join("");
+
+    card.innerHTML = `
+      <div class="pane-head">
+        <strong class="pane-title">${run.laneName} | ${run.label}</strong>
+        <span class="state-badge ${token.className}">${token.icon} ${run.operationalStatus}</span>
+      </div>
+      <div class="pane-meta">
+        <span>Phase: ${run.requiresHumanGate ? "approval" : run.currentPhase}</span>
+        <span>Runtime: ${formatDuration(run.runtimeMs)}</span>
+        <span>Last action: ${run.lastActionTs ? ageText(run.lastActionTs) : "n/a"}</span>
+      </div>
+      <div class="pane-step">Current step: ${latest?.summary || "No event captured yet."}</div>
+      <div class="pane-step">Current file: ${latest?.filePath || "none"}</div>
+      <div class="pane-log">${logHtml || '<div class="pane-log-line">No recent events.</div>'}</div>
+    `;
+
+    card.addEventListener("click", () => selectRun(run.runId, { drawerMode: "overview" }));
+    paneViewportEl.append(card);
+  }
+}
+
 function renderUi() {
   updateAllDerived();
   const runs = getRunsForView();
+  applyViewMode();
   renderWsStatus();
   renderGlobalHud();
-  drawMap();
+  if (state.ui.viewMode === "city") {
+    drawMap();
+  }
+  renderPaneView(runs);
   renderNeedsAttentionQueue(runs);
   renderAgentTable(runs);
   renderApprovalStreet(runs);
@@ -1491,6 +1562,18 @@ function setupEventHandlers() {
     connectWebSocket();
   });
 
+  cityViewBtnEl.addEventListener("click", () => {
+    state.ui.viewMode = "city";
+    persistSettings();
+    renderUi();
+  });
+
+  paneViewBtnEl.addEventListener("click", () => {
+    state.ui.viewMode = "pane";
+    persistSettings();
+    renderUi();
+  });
+
   simScoldedBtnEl.addEventListener("click", () => runScenario("scolded"));
   simLongtaskBtnEl.addEventListener("click", () => runScenario("longtask"));
   simAsleepBtnEl.addEventListener("click", () => runScenario("asleep"));
@@ -1640,7 +1723,10 @@ function frame(now) {
   if (now - lastFrameAt > 250) {
     lastFrameAt = now;
     renderGlobalHud();
-    drawMap();
+    if (state.ui.viewMode === "city") {
+      drawMap();
+    }
+    renderPaneView(getRunsForView());
     renderNeedsAttentionQueue(getRunsForView());
     renderApprovalStreet(getRunsForView());
   }

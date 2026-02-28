@@ -101,6 +101,10 @@
           <p id="hudRuntime" class="caption-pill">Runtime: 0s</p>
           <p id="hudBlockedSince" class="caption-pill">Blocked since: n/a</p>
           <p id="hudFirstAnomaly" class="caption-pill">First anomaly: n/a</p>
+          <div class="view-toggle" role="group" aria-label="View mode">
+            <button id="cityViewBtn" type="button">City View</button>
+            <button id="paneViewBtn" type="button">Pane View</button>
+          </div>
         </section>
 
         <div id="mapViewport" class="map-wrap">
@@ -108,6 +112,8 @@
           <div id="mapOverlay" class="map-overlay" aria-label="Agent tiles" role="listbox"></div>
           <p id="runBadge" class="run-badge">No run selected</p>
         </div>
+
+        <section id="paneViewport" class="pane-wrap" aria-label="Pane view"></section>
 
         <section class="approval-street" aria-label="Approval street">
           <div class="approval-head">

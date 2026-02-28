@@ -49,16 +49,6 @@ WIMUT combines:
 - Multi-agent swarm mode for concurrent local testing
 - Optional git-diff helper for ground-truth changed files
 
-## Hackathon Judging Criteria
-
-1. Clarity of idea
-2. Technical execution
-3. Completeness
-4. Impact and insight
-5. Use of Codex
-
-Judging note: simulation is intentionally optimized for clarity over event volume.
-
 ## Architecture (Current)
 
 1. `relay.mjs` starts `codex app-server` and connects as a JSON-RPC client.
