@@ -53,11 +53,11 @@ Core interactions:
 - `Needs attention` opens Ops drawer to the queue
 - `Approvals pending` expands Approval Street
 - `First anomaly` jumps focus and highlights the relevant run
-- top CTA is context-sensitive: `Approve next` -> `Jump to first anomaly` -> `Open Ops`
+- top CTA is always `Open Ops`
 
 Replay and simulator controls live under `Ops -> Dev tools` (collapsed by default) so fallback reliability is preserved without shrinking the visual map.
 
-Street rendering uses pixel-art textures from `/public/assets/city/*`. If those files are missing or fail to load, the canvas logs explicit `[city-art]` errors and automatically falls back to vector street rendering.
+Street rendering uses pixel-art textures from `/public/assets/city/*` with vertical dashed road markings and stacked building dividers between streets. If any required city asset fails to load, the canvas logs explicit `[city-art]` errors and automatically falls back to vector street rendering.
 
 ## What We Built
 

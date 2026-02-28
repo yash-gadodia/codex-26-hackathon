@@ -1049,16 +1049,8 @@ function renderGlobalHud() {
   opsTabBadgeEl.classList.toggle("critical", criticalCount > 0);
   opsTabEl.classList.toggle("pulse", criticalCount > 0 && !state.ui.reducedMotion);
 
-  if (approvals.length > 0) {
-    summaryPrimaryCtaEl.textContent = "Approve next";
-    summaryPrimaryCtaEl.dataset.action = "approve-next";
-  } else if (run && (topStatus === "Blocked" || topStatus === "Degraded") && state.ui.summaryFocusRunId) {
-    summaryPrimaryCtaEl.textContent = "Jump to first anomaly";
-    summaryPrimaryCtaEl.dataset.action = "jump-anomaly";
-  } else {
-    summaryPrimaryCtaEl.textContent = "Open Ops";
-    summaryPrimaryCtaEl.dataset.action = "open-ops";
-  }
+  summaryPrimaryCtaEl.textContent = "Open Ops";
+  summaryPrimaryCtaEl.dataset.action = "open-ops";
 
   if (run) {
     runBadgeEl.textContent = `${APP_NAME} | ${run.laneName} | ${run.label}`;
@@ -1469,25 +1461,13 @@ function drawMap() {
   });
 
   for (const item of lanes) {
-    const { g } = item;
+    const { g, stalledCount } = item;
     if (useCityArt) {
       drawRoundedRect(ctx, g.lane.x, g.lane.y, g.lane.w, g.lane.h, 6, "#152e45", "rgba(161, 199, 224, 0.2)");
       drawSidewalkSurface(ctx, g.lane);
       drawRoundedRect(ctx, g.lane.x, g.lane.y, g.lane.w, g.lane.h, 6, "rgba(0, 0, 0, 0)", "rgba(161, 199, 224, 0.2)");
     } else {
       drawRoundedRect(ctx, g.lane.x, g.lane.y, g.lane.w, g.lane.h, 6, "#17324a", "rgba(161, 199, 224, 0.2)");
-    }
-    drawRoundedRect(ctx, g.sign.x, g.sign.y, g.sign.w, g.sign.h, 6, "#0f2539", "rgba(161, 199, 224, 0.3)");
-
-    const warning = stalledCount > 0;
-    const signName = `${lane.emoji} ${lane.street}${warning ? " ⚠" : ""}`;
-    drawText(ctx, signName, g.sign.x + 8, g.sign.y + 20, "#f4f7de", 11);
-    drawText(ctx, `🚗 ${activeCount} Active | ⏳ ${waitingCount} Waiting | 🛑 ${stalledCount} Stalled`, g.sign.x + 8, g.sign.y + 40, "#d4e5f3", 9);
-    drawText(ctx, `Oldest stall: ${oldestStallTs ? ageText(oldestStallTs) : "n/a"}`, g.sign.x + 8, g.sign.y + 58, "#bfd3e6", 8);
-
-    if (warning) {
-      ctx.fillStyle = "rgba(212, 75, 75, 0.85)";
-      ctx.fillRect(g.sign.x + 4, g.sign.y + g.sign.h - 5, g.sign.w - 8, 3);
     }
 
     if (useCityArt) {
@@ -1497,7 +1477,6 @@ function drawMap() {
     } else {
       drawRoundedRect(ctx, g.main.x, g.main.y, g.main.w, g.main.h, 5, "rgba(43, 81, 104, 0.45)", "rgba(146, 198, 228, 0.26)");
     }
-    drawText(ctx, "Main Road", g.main.x + 8, g.main.y + 14, "#e8f4df", 9);
 
     if (useCityArt) {
       drawRoundedRect(ctx, g.cul.x, g.cul.y, g.cul.w, g.cul.h, 8, "rgba(47, 30, 34, 0.9)");
@@ -1540,6 +1519,7 @@ function drawMap() {
       ctx.fillRect(g.sign.x + 4, g.sign.y + g.sign.h - 5, g.sign.w - 8, 3);
     }
 
+    drawText(ctx, "Main Road", g.main.x + 8, g.main.y + 14, "#e8f4df", 9);
     drawText(ctx, `Cul-de-Sac (${stalledCount} Stalled)`, g.cul.x + 8, g.cul.y + 14, "#ffd5cb", 9);
 
     let mainPacked = packActors(g.main, mainRuns, false, "main", lane.id);
@@ -2098,16 +2078,6 @@ function setupEventHandlers() {
   });
 
   summaryPrimaryCtaEl.addEventListener("click", () => {
-    const action = summaryPrimaryCtaEl.dataset.action;
-    if (action === "approve-next") {
-      const approvals = getRunsForView().filter((run) => run.requiresHumanGate).sort(queueSort);
-      if (approvals[0]) approveRun(approvals[0].runId);
-      return;
-    }
-    if (action === "jump-anomaly") {
-      if (state.ui.summaryFocusRunId) jumpToFirstAnomaly(state.ui.summaryFocusRunId);
-      return;
-    }
     setOpsDrawerOpen(true);
   });
 
