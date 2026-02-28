@@ -3,11 +3,33 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Agent Control Room | Operator HUD</title>
+    <title>Lorong AI x Codex | Agent Mission Room</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@600;700;800&family=Nunito:wght@400;600;700;800&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <main class="shell">
+      <header class="brand-strip" aria-label="Lorong AI and Codex branding">
+        <div class="brand-block lorong-brand">
+          <img src="/assets/lorong-ai-logo-1200.png" alt="Lorong AI logo" class="lorong-logo" />
+        </div>
+        <div class="brand-block codex-brand">
+          <video class="codex-video" autoplay muted loop playsinline aria-label="Codex animated logo">
+            <source src="/assets/codex-logo.mp4" type="video/mp4" />
+          </video>
+          <div>
+            <p class="brand-kicker">Powered by OpenAI</p>
+            <p class="brand-name">Codex</p>
+            <p class="brand-subtitle">Live agent mission control</p>
+          </div>
+        </div>
+      </header>
+
       <header id="topSummaryBar" class="top-summary" aria-live="polite">
         <div class="top-summary-track">
           <p id="summaryRunIdentity" class="summary-chip">Lorong: Waiting | codex:main</p>

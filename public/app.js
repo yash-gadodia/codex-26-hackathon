@@ -11,14 +11,14 @@ const DEFAULT_WS_SCHEME = window.location.protocol === "https:" ? "wss" : "ws";
 const WS_URL = PAGE_QUERY.get("ws") || `${DEFAULT_WS_SCHEME}://${DEFAULT_HOST}:8787`;
 const STORAGE_KEY = "agent-viz-runs-v3";
 const SETTINGS_KEY = "agent-viz-settings-v3";
-const APP_NAME = "What Is My Agent Up To?";
+const APP_NAME = "Lorong AI x Codex Mission Room";
 const WORLD = { width: 1280, height: 720 };
 
 const PHASE_COLUMNS = [
-  { id: "plan", street: "Planning Street", emoji: "🗺", color: "#8fa9f3", accent: "#c9d9ff" },
-  { id: "execute", street: "Execution Street", emoji: "⚙", color: "#76c897", accent: "#b8f2d0" },
-  { id: "verify", street: "Verification Street", emoji: "🧪", color: "#f0c276", accent: "#ffe1aa" },
-  { id: "report", street: "Reporting Street", emoji: "📝", color: "#84c8ea", accent: "#c5ebff" },
+  { id: "plan", street: "Planning Street", emoji: "🗺", color: "#5f91e6", accent: "#dbe8ff" },
+  { id: "execute", street: "Execution Street", emoji: "⚙", color: "#1ca85d", accent: "#d4f6e4" },
+  { id: "verify", street: "Verification Street", emoji: "🧪", color: "#d69c1f", accent: "#ffefc4" },
+  { id: "report", street: "Reporting Street", emoji: "📝", color: "#4e9cd8", accent: "#d9f0ff" },
 ];
 
 const PHASE_WEIGHT = {
@@ -34,13 +34,13 @@ const STATUS_ORDER = { active: 0, waiting: 1, "needs-human": 2, done: 3, blocked
 const CULDESAC_BLOCKERS = new Set(["verify_loop", "tool_fail_loop", "no_progress", "dependency_wait"]);
 
 const STATUS_TOKENS = {
-  active: { icon: "▶", className: "state-active", color: "#3dcc72" },
-  waiting: { icon: "⏳", className: "state-waiting", color: "#d7b341" },
-  "needs-human": { icon: "🧍", className: "state-needs-human", color: "#9f71df" },
-  blocked: { icon: "❗", className: "state-blocked", color: "#d24b4b" },
-  loop: { icon: "🔁", className: "state-loop", color: "#be3636" },
-  failed: { icon: "✖", className: "state-failed", color: "#7a1818" },
-  done: { icon: "✔", className: "state-done", color: "#7b8087" },
+  active: { icon: "▶", className: "state-active", color: "#1aa55a" },
+  waiting: { icon: "⏳", className: "state-waiting", color: "#d09218" },
+  "needs-human": { icon: "🧍", className: "state-needs-human", color: "#5d7ef6" },
+  blocked: { icon: "❗", className: "state-blocked", color: "#d55c45" },
+  loop: { icon: "🔁", className: "state-loop", color: "#bf4f3d" },
+  failed: { icon: "✖", className: "state-failed", color: "#9d2f2f" },
+  done: { icon: "✔", className: "state-done", color: "#517087" },
 };
 
 const BLOCKER_ICON = {
