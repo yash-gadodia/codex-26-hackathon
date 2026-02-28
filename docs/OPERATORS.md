@@ -108,3 +108,10 @@ To keep 15-20+ agents readable:
 - Density mode shrinks actor footprint first
 - If overflow still exists, one slot becomes a cluster with `+N`
 - Cluster click/focus opens the representative run while preserving keyboard navigation
+
+## Approval Street Overlay
+
+- Approval Street is rendered as a dedicated road-themed overlay lane at the bottom of the map viewport.
+- The lane appears immediately when at least one run requires approval.
+- The lane auto-hides entirely when approvals return to `0 pending`.
+- Approval actions (`Approve next`, `Batch approve`, single-item approve) remain available in this overlay lane.

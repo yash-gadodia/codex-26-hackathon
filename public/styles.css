@@ -425,6 +425,17 @@ body.view-pane .pane-wrap {
   transition: min-height 140ms ease;
 }
 
+.approval-street-overlay {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 7;
+  border-color: rgba(169, 211, 235, 0.4);
+  background: rgba(16, 36, 53, 0.84);
+  box-shadow: 0 6px 14px rgba(9, 23, 36, 0.22);
+}
+
 .approval-street.collapsed {
   min-height: 38px;
 }
@@ -454,6 +465,7 @@ body.view-pane .pane-wrap {
   gap: 7px;
   overflow: auto;
   padding-bottom: 2px;
+  scrollbar-width: thin;
 }
 
 .approval-tile {
@@ -465,6 +477,16 @@ body.view-pane .pane-wrap {
   display: grid;
   gap: 4px;
   font-size: 11px;
+}
+
+.approval-street-overlay .approval-head .chip {
+  background: rgba(11, 25, 38, 0.85);
+  color: #dceefe;
+}
+
+.approval-street-overlay .approval-toggle,
+.approval-street-overlay button {
+  border-color: rgba(151, 206, 240, 0.4);
 }
 
 button,
@@ -861,5 +883,15 @@ body.reduced-motion * {
     top: auto;
     bottom: 78px;
     transform: none;
+  }
+
+  .approval-street-overlay {
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+  }
+
+  .approval-tile {
+    min-width: 158px;
   }
 }

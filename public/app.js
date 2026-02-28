@@ -195,6 +195,8 @@ const state = {
     agentDrawerOpen: false,
     approvalStreetExpanded: false,
     approvalStreetManual: false,
+    approvalOverlayVisible: false,
+    approvalOverlayRects: [],
     opsDevtoolsExpanded: false,
     highlightRunId: null,
     summaryFocusRunId: null,
@@ -337,9 +339,16 @@ function setApprovalStreetExpanded(expanded, options = {}) {
   } else if (!state.ui.approvalStreetExpanded) {
     state.ui.approvalStreetManual = false;
   }
+  approvalStreetEl.hidden = !state.ui.approvalOverlayVisible;
   approvalStreetEl.classList.toggle("expanded", state.ui.approvalStreetExpanded);
   approvalStreetEl.classList.toggle("collapsed", !state.ui.approvalStreetExpanded);
   approvalStreetBodyEl.hidden = !state.ui.approvalStreetExpanded;
+}
+
+function setApprovalOverlayVisible(visible) {
+  state.ui.approvalOverlayVisible = Boolean(visible);
+  approvalStreetEl.hidden = !state.ui.approvalOverlayVisible;
+  approvalStreetEl.classList.toggle("is-visible", state.ui.approvalOverlayVisible);
 }
 
 function setOpsDevtoolsExpanded(expanded) {
@@ -1215,6 +1224,38 @@ function drawRoadSurface(target, rect, variant) {
   drawPatternRect(target, CITY_ART.crosswalk.image, crosswalkRect, 0.88);
 }
 
+function drawApprovalRoadLane(target, useCityArt) {
+  if (!state.ui.approvalOverlayVisible) return;
+  const laneH = 118;
+  const laneY = WORLD.height - laneH - 8;
+  const laneRect = {
+    x: 12,
+    y: laneY,
+    w: WORLD.width - 24,
+    h: laneH,
+  };
+
+  if (useCityArt) {
+    drawRoundedRect(target, laneRect.x, laneRect.y, laneRect.w, laneRect.h, 10, "rgba(16, 35, 51, 0.86)");
+    drawPatternRect(target, CITY_ART.roadBase.image, laneRect, 0.95);
+
+    const centerLine = {
+      x: laneRect.x + 18,
+      y: laneRect.y + Math.floor(laneRect.h / 2) - 6,
+      w: laneRect.w - 36,
+      h: 12,
+    };
+    drawPatternRect(target, CITY_ART.doubleYellow.image, centerLine, 0.9);
+    drawRoundedRect(target, laneRect.x, laneRect.y, laneRect.w, laneRect.h, 10, "rgba(0,0,0,0)", "rgba(176, 213, 235, 0.35)");
+  } else {
+    drawRoundedRect(target, laneRect.x, laneRect.y, laneRect.w, laneRect.h, 10, "rgba(22, 48, 70, 0.82)", "rgba(176, 213, 235, 0.35)");
+    target.fillStyle = "rgba(230, 188, 89, 0.82)";
+    target.fillRect(laneRect.x + 18, laneRect.y + Math.floor(laneRect.h / 2) - 2, laneRect.w - 36, 4);
+  }
+
+  drawText(target, "Approval Street", laneRect.x + 12, laneRect.y + 16, "#e6f4ff", 10);
+}
+
 function drawBuildingDividers(target, laneGeometries) {
   if (laneGeometries.length < 2) return;
   for (let i = 0; i < laneGeometries.length - 1; i += 1) {
@@ -1481,6 +1522,7 @@ function drawMap() {
   const useCityArt = state.ui.cityArtEnabled
     && CITY_ART.roadBase.image
     && CITY_ART.sidewalk.image
+    && CITY_ART.doubleYellow.image
     && CITY_ART.whiteDash.image
     && CITY_ART.crosswalk.image
     && CITY_ART.building06.image
@@ -1591,6 +1633,7 @@ function drawMap() {
 
   state.ui.mapDensityMode = densityTriggered;
   state.ui.keyboardFocusIndex = clamp(state.ui.keyboardFocusIndex, 0, Math.max(0, state.ui.actorRects.length - 1));
+  drawApprovalRoadLane(ctx, useCityArt);
 
   renderMapOverlay();
 }
@@ -1746,12 +1789,15 @@ function renderAgentTable(runs) {
 
 function renderApprovalStreet(runs) {
   const approvals = runs.filter((run) => run.requiresHumanGate).sort(queueSort);
+  setApprovalOverlayVisible(approvals.length > 0);
   approvalCountEl.textContent = `${approvals.length} pending`;
-  if (approvals.length > 0) setApprovalStreetExpanded(true);
-  if (approvals.length === 0 && state.ui.approvalStreetExpanded && !state.ui.approvalStreetManual) {
-    setApprovalStreetExpanded(false);
-  }
+  if (approvals.length > 0 && !state.ui.approvalStreetExpanded) setApprovalStreetExpanded(true);
+  if (approvals.length === 0) setApprovalStreetExpanded(false);
+
+  state.ui.approvalOverlayRects = approvals.map((run, index) => ({ runId: run.runId, index }));
   approvalListEl.innerHTML = "";
+
+  if (approvals.length === 0) return;
 
   for (const run of approvals) {
     const div = document.createElement("article");
@@ -1765,13 +1811,6 @@ function renderApprovalStreet(runs) {
     `;
     div.addEventListener("click", () => selectRun(run.runId));
     approvalListEl.append(div);
-  }
-
-  if (approvals.length === 0) {
-    const empty = document.createElement("p");
-    empty.className = "muted";
-    empty.textContent = "No pending approvals.";
-    approvalListEl.append(empty);
   }
 }
 
@@ -2349,6 +2388,7 @@ async function boot() {
   setupEventHandlers();
   setOpsDrawerOpen(false);
   setAgentDrawerOpen(false);
+  setApprovalOverlayVisible(false);
   setApprovalStreetExpanded(false);
   setOpsDevtoolsExpanded(false);
   connectWebSocket();

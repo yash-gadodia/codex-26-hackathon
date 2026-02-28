@@ -52,18 +52,18 @@
           <canvas id="cityCanvas" width="1280" height="720"></canvas>
           <div id="mapOverlay" class="map-overlay" aria-label="Agent tiles" role="listbox"></div>
           <p id="runBadge" class="run-badge">No run selected</p>
-        </div>
-      </section>
 
-      <section id="approvalStreet" class="approval-street collapsed" aria-label="Approval street">
-        <div class="approval-head">
-          <button id="approvalStreetToggle" type="button" class="approval-toggle">Approval Street</button>
-          <p id="approvalCount" class="chip">0 pending</p>
-          <button id="approveNextBtn" type="button">Approve next</button>
-          <button id="batchApproveBtn" type="button">Batch approve</button>
-        </div>
-        <div id="approvalStreetBody" class="approval-body">
-          <div id="approvalList" class="approval-list"></div>
+          <section id="approvalStreet" class="approval-street approval-street-overlay collapsed" aria-label="Approval street" hidden>
+            <div class="approval-head">
+              <button id="approvalStreetToggle" type="button" class="approval-toggle">Approval Street</button>
+              <p id="approvalCount" class="chip">0 pending</p>
+              <button id="approveNextBtn" type="button">Approve next</button>
+              <button id="batchApproveBtn" type="button">Batch approve</button>
+            </div>
+            <div id="approvalStreetBody" class="approval-body">
+              <div id="approvalList" class="approval-list"></div>
+            </div>
+          </section>
         </div>
       </section>
     </main>
