@@ -146,6 +146,13 @@ const replayInfoEl = document.getElementById("replayInfo");
 
 const drawerTitleEl = document.getElementById("drawerTitle");
 const drawerTaskEl = document.getElementById("drawerTask");
+const drawerStatusChipEl = document.getElementById("drawerStatusChip");
+const drawerPhaseChipEl = document.getElementById("drawerPhaseChip");
+const drawerAttentionChipEl = document.getElementById("drawerAttentionChip");
+const drawerRuntimeEl = document.getElementById("drawerRuntime");
+const drawerToolsEl = document.getElementById("drawerTools");
+const drawerFilesEl = document.getElementById("drawerFiles");
+const drawerErrorsEl = document.getElementById("drawerErrors");
 const drawerLastSuccessEl = document.getElementById("drawerLastSuccess");
 const drawerBlockerEl = document.getElementById("drawerBlocker");
 const drawerRecommendationsEl = document.getElementById("drawerRecommendations");
@@ -2159,17 +2166,35 @@ function renderDrawer() {
   if (!run) {
     drawerTitleEl.textContent = "No agent selected";
     drawerTaskEl.textContent = "Select an agent tile, queue card, or table row.";
-    drawerLastSuccessEl.textContent = "Last success: n/a";
-    drawerBlockerEl.textContent = "Blocker: none";
+    drawerStatusChipEl.className = "state-badge state-waiting";
+    drawerStatusChipEl.textContent = "⏳ waiting";
+    drawerPhaseChipEl.textContent = "Phase: n/a";
+    drawerAttentionChipEl.textContent = "Attention: none";
+    drawerRuntimeEl.textContent = "0s";
+    drawerToolsEl.textContent = "0";
+    drawerFilesEl.textContent = "0";
+    drawerErrorsEl.textContent = "0";
+    drawerLastSuccessEl.textContent = "n/a";
+    drawerBlockerEl.textContent = "none";
     drawerRecommendationsEl.innerHTML = "";
     drawerEventsEl.innerHTML = "";
     return;
   }
 
-  drawerTitleEl.textContent = run.label;
+  const token = STATUS_TOKENS[run.operationalStatus] || STATUS_TOKENS.waiting;
+  const phaseText = run.requiresHumanGate ? "approval" : run.currentPhase;
+  drawerTitleEl.textContent = run.label.replace(/^codex:/, "");
   drawerTaskEl.textContent = run.timeline.at(-1)?.summary || "No event captured yet.";
-  drawerLastSuccessEl.textContent = `Last success: ${run.lastSuccessTs ? ageText(run.lastSuccessTs) : "n/a"}`;
-  drawerBlockerEl.textContent = `Blocker: ${blockerLabel(run.blockerClass)}`;
+  drawerStatusChipEl.className = `state-badge ${token.className}`;
+  drawerStatusChipEl.textContent = `${token.icon} ${run.operationalStatus}`;
+  drawerPhaseChipEl.textContent = `Phase: ${phaseText}`;
+  drawerAttentionChipEl.textContent = `Attention: ${run.needsAttentionSeverity}`;
+  drawerRuntimeEl.textContent = formatDuration(run.runtimeMs);
+  drawerToolsEl.textContent = String(run.toolCount);
+  drawerFilesEl.textContent = String(run.fileCount);
+  drawerErrorsEl.textContent = String(run.errorCount);
+  drawerLastSuccessEl.textContent = run.lastSuccessTs ? ageText(run.lastSuccessTs) : "n/a";
+  drawerBlockerEl.textContent = blockerLabel(run.blockerClass);
 
   drawerRecommendationsEl.innerHTML = "";
   for (const rec of actionRecommendations(run)) {
@@ -2182,7 +2207,8 @@ function renderDrawer() {
   drawerEventsEl.innerHTML = "";
   for (const event of events) {
     const li = document.createElement("li");
-    li.textContent = `${new Date(event.ts).toLocaleTimeString()} | ${event.summary}`;
+    const kind = event.derived?.[0]?.kind || "note";
+    li.textContent = `${new Date(event.ts).toLocaleTimeString()} | ${kind} | ${event.summary}`;
     drawerEventsEl.append(li);
   }
 }

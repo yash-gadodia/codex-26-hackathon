@@ -206,10 +206,21 @@
         <button id="agentDrawerClose" type="button">Close</button>
       </div>
       <section id="drawer" class="drawer" aria-live="polite">
-        <h3 id="drawerTitle">No agent selected</h3>
-        <p id="drawerTask" class="muted">Select an agent tile, queue card, or table row.</p>
-        <p id="drawerLastSuccess" class="muted">Last success: n/a</p>
-        <p id="drawerBlocker" class="muted">Blocker: none</p>
+        <h3 id="drawerTitle" class="drawer-title">No agent selected</h3>
+        <p id="drawerTask" class="drawer-task">Select an agent tile, queue card, or table row.</p>
+        <div id="drawerStatusRow" class="drawer-status-row">
+          <span id="drawerStatusChip" class="state-badge state-waiting">⏳ waiting</span>
+          <span id="drawerPhaseChip" class="chip">Phase: n/a</span>
+          <span id="drawerAttentionChip" class="chip">Attention: none</span>
+        </div>
+        <div class="drawer-kpi-grid">
+          <div class="drawer-kpi"><span>Runtime</span><strong id="drawerRuntime">0s</strong></div>
+          <div class="drawer-kpi"><span>Tools</span><strong id="drawerTools">0</strong></div>
+          <div class="drawer-kpi"><span>Files</span><strong id="drawerFiles">0</strong></div>
+          <div class="drawer-kpi"><span>Errors</span><strong id="drawerErrors">0</strong></div>
+          <div class="drawer-kpi"><span>Last success</span><strong id="drawerLastSuccess">n/a</strong></div>
+          <div class="drawer-kpi"><span>Blocker</span><strong id="drawerBlocker">none</strong></div>
+        </div>
         <div class="drawer-actions row">
           <button id="jumpFirstAnomalyBtn" type="button">Jump to first anomaly</button>
           <button id="provideInputBtn" type="button">Provide input</button>
