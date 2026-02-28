@@ -1533,7 +1533,11 @@ function drawApprovalRoadLane(target, useCityArt) {
     target.fillRect(laneRect.x + 18, laneRect.y + Math.floor(laneRect.h / 2) - 2, laneRect.w - 36, 4);
   }
 
-  drawText(target, "Approval Street", laneRect.x + 12, laneRect.y + 16, "#e6f4ff", 10);
+  const signW = Math.min(Math.max(240, Math.floor(laneRect.w * 0.28)), laneRect.w - 28);
+  const signH = 36;
+  const signX = laneRect.x + 12;
+  const signY = laneRect.y + 8;
+  drawLorongStreetSign(target, signX, signY, signW, signH, "Lorong Approval", 18);
 }
 
 function drawBuildingDividers(target, laneGeometries) {
@@ -1726,6 +1730,41 @@ function drawClusterBadge(target, x, y, count) {
   const width = Math.max(18, 8 + text.length * 6);
   drawRoundedRect(target, x - width, y, width, 14, 5, "rgba(20, 47, 73, 0.94)", "rgba(205, 232, 255, 0.56)");
   drawText(target, text, x - width + 4, y + 10, "#e7f5ff", 8);
+}
+
+function drawLorongStreetSign(target, x, y, w, h, text, fontSize = 17) {
+  drawRoundedRect(target, x, y, w, h, Math.floor(h / 2), "#f6f9fc", "rgba(208, 220, 231, 0.8)");
+  const plateX = x + 3;
+  const plateY = y + 3;
+  const plateW = w - 6;
+  const plateH = h - 6;
+  const plateGradient = target.createLinearGradient(plateX, plateY, plateX, plateY + plateH);
+  plateGradient.addColorStop(0, "#17a55b");
+  plateGradient.addColorStop(0.54, "#10914d");
+  plateGradient.addColorStop(1, "#0a7d42");
+  drawRoundedRect(target, plateX, plateY, plateW, plateH, Math.max(4, Math.floor(plateH / 2)), plateGradient);
+
+  target.save();
+  target.fillStyle = "#f8fffb";
+  target.font = `700 ${fontSize}px "Nunito", "Trebuchet MS", sans-serif`;
+  target.textAlign = "center";
+  target.textBaseline = "middle";
+  target.fillText(text, x + w / 2, y + h / 2 + 0.5);
+  target.restore();
+}
+
+function drawLorongLaneHeader(target, signRect, label, warning) {
+  drawRoundedRect(target, signRect.x, signRect.y, signRect.w, signRect.h, 6, "#0f2539", "rgba(161, 199, 224, 0.3)");
+
+  const signW = Math.max(140, signRect.w - 24);
+  const signH = 34;
+  const signX = signRect.x + Math.floor((signRect.w - signW) / 2);
+  const signY = signRect.y + 7;
+  drawLorongStreetSign(target, signX, signY, signW, signH, label, 17);
+
+  if (warning) {
+    drawRoundedRect(target, signRect.x + 4, signRect.y + signRect.h - 8, signRect.w - 8, 4, 2, "rgba(212, 75, 75, 0.9)");
+  }
 }
 
 function motionForActor(placement, visualState, timeSec, reducedMotion) {
@@ -1967,18 +2006,29 @@ function drawMap(runs = getRunsForView()) {
       stalledCount,
       oldestStallTs,
     } = item;
-    drawRoundedRect(ctx, g.sign.x, g.sign.y, g.sign.w, g.sign.h, 6, "#0f2539", "rgba(161, 199, 224, 0.3)");
-
     const warning = stalledCount > 0;
-    const signName = `${lane.emoji} ${lane.street}${warning ? " ⚠" : ""}`;
-    drawText(ctx, signName, g.sign.x + 8, g.sign.y + 20, "#f4f7de", 11);
-    drawText(ctx, `🚗 ${activeCount} Active | ⏳ ${waitingCount} Waiting | 🛑 ${stalledCount} Stalled`, g.sign.x + 8, g.sign.y + 40, "#d4e5f3", 9);
-    drawText(ctx, `Oldest stall: ${oldestStallTs ? ageText(oldestStallTs) : "n/a"}`, g.sign.x + 8, g.sign.y + 58, "#bfd3e6", 8);
-
-    if (warning) {
-      ctx.fillStyle = "rgba(212, 75, 75, 0.85)";
-      ctx.fillRect(g.sign.x + 4, g.sign.y + g.sign.h - 5, g.sign.w - 8, 3);
+    const usesLorongSign = lane.id === "plan" || lane.id === "execute" || lane.id === "verify" || lane.id === "report";
+    if (lane.id === "plan") {
+      drawLorongLaneHeader(ctx, g.sign, "Lorong Plan", warning);
+    } else if (lane.id === "execute") {
+      drawLorongLaneHeader(ctx, g.sign, "Lorong Execute", warning);
+    } else if (lane.id === "verify") {
+      drawLorongLaneHeader(ctx, g.sign, "Lorong Verify", warning);
+    } else if (lane.id === "report") {
+      drawLorongLaneHeader(ctx, g.sign, "Lorong Report", warning);
+    } else {
+      drawRoundedRect(ctx, g.sign.x, g.sign.y, g.sign.w, g.sign.h, 6, "#0f2539", "rgba(161, 199, 224, 0.3)");
+      const signName = `${lane.emoji} ${lane.street}${warning ? " ⚠" : ""}`;
+      drawText(ctx, signName, g.sign.x + 8, g.sign.y + 20, "#f4f7de", 11);
+      if (warning) {
+        ctx.fillStyle = "rgba(212, 75, 75, 0.85)";
+        ctx.fillRect(g.sign.x + 4, g.sign.y + g.sign.h - 5, g.sign.w - 8, 3);
+      }
     }
+    const statsY = usesLorongSign ? g.sign.y + 54 : g.sign.y + 40;
+    const oldestY = usesLorongSign ? g.sign.y + 70 : g.sign.y + 58;
+    drawText(ctx, `🚗 ${activeCount} Active | ⏳ ${waitingCount} Waiting | 🛑 ${stalledCount} Stalled`, g.sign.x + 8, statsY, "#d4e5f3", 9);
+    drawText(ctx, `Oldest stall: ${oldestStallTs ? ageText(oldestStallTs) : "n/a"}`, g.sign.x + 8, oldestY, "#bfd3e6", 8);
 
     drawText(ctx, "Main Road", g.main.x + 8, g.main.y + 14, "#e8f4df", 9);
     drawText(ctx, `Cul-de-Sac (${stalledCount} Stalled)`, g.cul.x + 8, g.cul.y + 14, "#ffd5cb", 9);

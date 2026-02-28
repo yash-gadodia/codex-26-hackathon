@@ -537,6 +537,24 @@ body.view-pane .pane-wrap {
 
 .approval-toggle {
   flex: 0 0 auto;
+  min-width: 260px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  padding: 8px 18px;
+  background:
+    linear-gradient(180deg, #ffffff, #eef2f6) padding-box,
+    linear-gradient(180deg, #26bb70, #0d8f4c 54%, #07763e) border-box;
+  color: #f8fffc;
+  text-shadow: 0 1px 0 rgba(11, 51, 31, 0.45);
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-family: "Nunito", "Trebuchet MS", sans-serif;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.05;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.5) inset,
+    0 4px 14px rgba(8, 58, 33, 0.34);
 }
 
 .approval-body {
@@ -567,9 +585,12 @@ body.view-pane .pane-wrap {
   color: #dceefe;
 }
 
-.approval-street-overlay .approval-toggle,
 .approval-street-overlay button {
   border-color: rgba(151, 206, 240, 0.4);
+}
+
+.approval-street-overlay .approval-toggle {
+  border-color: transparent;
 }
 
 button,
@@ -1075,6 +1096,12 @@ body.reduced-motion * {
     left: 8px;
     right: 8px;
     bottom: 8px;
+  }
+
+  .approval-toggle {
+    min-width: 214px;
+    font-size: 18px;
+    padding: 7px 14px;
   }
 
   .approval-tile {
