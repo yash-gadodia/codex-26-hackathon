@@ -516,16 +516,30 @@ function extractCommandAnnouncement(rawEvent) {
     };
   }
 
-  const message = compactText(rawEvent?.message || rawEvent?.params?.message || rawEvent?.params?.item?.message || "");
+  const message = compactText(
+    rawEvent?.message || rawEvent?.text || rawEvent?.params?.message || rawEvent?.params?.item?.message || ""
+  );
   const commandLike = /(npm |pnpm |yarn |bun |node |python |pytest|go test|cargo test|make |git |docker |terraform )/i.test(message);
   const commandContext =
     method.includes("commandexecution") || method.includes("command") || /tool\.run|tool\.exec|bash|terminal/.test(rawType);
-  if (!commandLike || !commandContext) return null;
+  if (commandLike && commandContext) {
+    return {
+      source: "Last command",
+      text: message,
+    };
+  }
 
-  return {
-    source: "Last command",
-    text: message,
-  };
+  if (!message) return null;
+
+  const announceTypes = new Set(["operator.input", "note", "swarm.child.log", "codex.stdout", "codex.stderr"]);
+  if (announceTypes.has(rawType)) {
+    return {
+      source: "Announcement",
+      text: message,
+    };
+  }
+
+  return null;
 }
 
 function updateAnnouncementFromRawEvent(rawEvent) {
