@@ -13,7 +13,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Validate Railway Secrets
-        shell: bash
+        shell: sh
         run: |
           if [ -z "${{ secrets.RAILWAY_TOKEN }}" ]; then
             echo "Missing secret: RAILWAY_TOKEN"
@@ -30,9 +30,9 @@ jobs:
           RAILWAY_SERVICE_ID: ${{ secrets.RAILWAY_SERVICE_ID }}
           RAILWAY_PROJECT_ID: ${{ secrets.RAILWAY_PROJECT_ID }}
           RAILWAY_ENVIRONMENT_ID: ${{ secrets.RAILWAY_ENVIRONMENT_ID }}
-        shell: bash
+        shell: sh
         run: |
-          set -euo pipefail
+          set -eu
 
           if [ -n "${RAILWAY_PROJECT_ID:-}" ] && [ -n "${RAILWAY_ENVIRONMENT_ID:-}" ]; then
             railway up --service "$RAILWAY_SERVICE_ID" --project "$RAILWAY_PROJECT_ID" --environment "$RAILWAY_ENVIRONMENT_ID"
