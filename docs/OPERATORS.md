@@ -101,6 +101,15 @@ Map actors now encode status directly through character behavior:
 
 Each actor also shows a floating progress timer (`⏳`) based on time since last progress signal (tool activity, file change, or success).
 
+### Character Mapping
+
+- Active (`active`): Character 1
+- Waiting (`waiting`): Character 2
+- Needs approval (`needs-human` / approval gate): Character 3
+- Blocked and loop (`blocked`, `loop`): Character 4
+- Failed (`failed`): Character 5
+- Done (`done`): Character 6
+
 ## Crowding Behavior
 
 To keep 15-20+ agents readable:

@@ -66,16 +66,17 @@ const CITY_ART = {
 };
 const CITY_BUILDING_KEYS = ["building06", "building07", "building08", "building09"];
 const ROTATED_PATTERN_CACHE = new Map();
-const CHARACTER_SPRITE_PATHS = [
-  "/assets/characters/char_0.png",
-  "/assets/characters/char_1.png",
-  "/assets/characters/char_2.png",
-  "/assets/characters/char_3.png",
-  "/assets/characters/char_4.png",
-  "/assets/characters/char_5.png",
-];
+const CHARACTER_SPRITE_PATHS_BY_STATE = {
+  active: "/assets/characters/state_active.svg",
+  waiting: "/assets/characters/state_waiting.svg",
+  approval: "/assets/characters/state_approval.svg",
+  blocked: "/assets/characters/state_blocked.svg",
+  loop: "/assets/characters/state_blocked.svg",
+  failed: "/assets/characters/state_failed.svg",
+  done: "/assets/characters/state_done.svg",
+};
 const CHARACTER_SPRITES = {
-  images: [],
+  byState: {},
   warned: false,
 };
 
@@ -286,11 +287,29 @@ async function preloadCityArt() {
 }
 
 async function preloadCharacterSprites() {
-  const results = await Promise.allSettled(CHARACTER_SPRITE_PATHS.map((src) => loadImage(src)));
-  CHARACTER_SPRITES.images = results.filter((item) => item.status === "fulfilled").map((item) => item.value);
-  if (CHARACTER_SPRITES.images.length === CHARACTER_SPRITE_PATHS.length) return;
+  const entries = Object.entries(CHARACTER_SPRITE_PATHS_BY_STATE);
+  const results = await Promise.allSettled(
+    entries.map(async ([stateKey, src]) => {
+      const image = await loadImage(src);
+      return { stateKey, image };
+    })
+  );
+  CHARACTER_SPRITES.byState = {};
+  let failed = false;
+  for (const result of results) {
+    if (result.status !== "fulfilled") {
+      failed = true;
+      continue;
+    }
+    CHARACTER_SPRITES.byState[result.value.stateKey] = result.value.image;
+  }
+  if (!failed) return;
   if (CHARACTER_SPRITES.warned) return;
   CHARACTER_SPRITES.warned = true;
+  for (let i = 0; i < results.length; i += 1) {
+    if (results[i].status === "fulfilled") continue;
+    console.error(`[character-sprites] failed to load ${entries[i][1]} for ${entries[i][0]}`);
+  }
   console.error("[character-sprites] some character sprites failed to load; using fallback silhouette when needed");
 }
 
@@ -1343,10 +1362,9 @@ function visualStateForRun(run) {
   return "waiting";
 }
 
-function characterSpriteForRun(run) {
-  if (!CHARACTER_SPRITES.images.length) return null;
-  const idx = hashString(run.runId) % CHARACTER_SPRITES.images.length;
-  return CHARACTER_SPRITES.images[idx] || null;
+function characterSpriteForRun(visualState) {
+  if (!visualState) return null;
+  return CHARACTER_SPRITES.byState[visualState] || null;
 }
 
 function drawFallbackCharacter(target, x, y, w, h, color = "#dde8f4") {
@@ -1426,7 +1444,7 @@ function drawAgentActor(target, placement, timeSec) {
   drawRoundedRect(target, x, y, w, h, 6, "rgba(8, 20, 32, 0.55)", border);
 
   const motion = motionForActor(placement, visualState, timeSec, state.ui.reducedMotion);
-  const sprite = characterSpriteForRun(run);
+  const sprite = characterSpriteForRun(visualState);
   const spriteW = Math.max(26, Math.floor(w * 0.7));
   const spriteH = Math.max(28, Math.floor(h * 0.72));
   const baseX = x + Math.floor((w - spriteW) / 2 + motion.dx + motion.shake);
