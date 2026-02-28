@@ -1145,8 +1145,11 @@ function getRunsForView() {
     const run = state.runs.get(runId);
     if (run) runs.push(run);
   }
-  if (runs.length === 0 && state.replay.previewRun) runs.push(state.replay.previewRun);
-  return runs;
+  const visibleRuns = state.ui.simulationLock
+    ? runs.filter((run) => String(run?.runId || "").startsWith("explicit:sim-lane-"))
+    : runs;
+  if (visibleRuns.length === 0 && state.replay.previewRun) visibleRuns.push(state.replay.previewRun);
+  return visibleRuns;
 }
 
 function getSelectedRealRun() {
@@ -1586,12 +1589,13 @@ function drawBuildingDividers(target, laneGeometries) {
 
 function stableSortRuns(runs) {
   return [...runs].sort((a, b) => {
+    if (state.ui.simulationLock) {
+      return String(a.runId).localeCompare(String(b.runId));
+    }
     const order = (STATUS_ORDER[a.operationalStatus] || 9) - (STATUS_ORDER[b.operationalStatus] || 9);
     if (order !== 0) return order;
     const phase = String(a.currentPhase).localeCompare(String(b.currentPhase));
     if (phase !== 0) return phase;
-    const recency = (b.lastActionTs || 0) - (a.lastActionTs || 0);
-    if (recency !== 0) return recency;
     return String(a.runId).localeCompare(String(b.runId));
   });
 }
@@ -2718,6 +2722,8 @@ function runSwimlaneDemo() {
   setOpsDrawerOpen(false);
   setAgentDrawerOpen(false);
   state.ui.simulationLock = true;
+  state.selectedRunId = null;
+  state.ui.selectedAgentRunId = null;
   setDemoScriptBanner("Step 1: Agents fan out across plan/execute/verify/report lanes.", true);
 
   const demoAgents = [
