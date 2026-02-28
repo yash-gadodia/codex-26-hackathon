@@ -9,123 +9,86 @@ const PAGE_QUERY = new URLSearchParams(window.location.search);
 const DEFAULT_HOST = window.location.hostname || "localhost";
 const DEFAULT_WS_SCHEME = window.location.protocol === "https:" ? "wss" : "ws";
 const WS_URL = PAGE_QUERY.get("ws") || `${DEFAULT_WS_SCHEME}://${DEFAULT_HOST}:8787`;
-const DIFF_HELPER_URL =
-  PAGE_QUERY.get("helper") || `${window.location.protocol}//${DEFAULT_HOST}:8790`;
-const STORAGE_KEY = "agent-viz-runs-v2";
-const SETTINGS_KEY = "agent-viz-settings-v1";
-const HARDCODED_REPO_PATH = "/Users/yash/Documents/Voltade/Code/openclaw";
+const STORAGE_KEY = "agent-viz-runs-v3";
+const SETTINGS_KEY = "agent-viz-settings-v3";
 const APP_NAME = "What Is My Agent Up To?";
-const LORONG_STREETS = [
-  "Lorong 1",
-  "Lorong 2",
-  "Lorong 3",
-  "Lorong 4",
-  "Lorong 5",
-  "Lorong 6",
-  "Lorong 7",
-  "Lorong 8",
+const WORLD = { width: 1280, height: 720 };
+
+const PHASE_COLUMNS = [
+  { id: "plan", street: "Planning Street", emoji: "🗺", color: "#8fa9f3", accent: "#c9d9ff" },
+  { id: "execute", street: "Execution Street", emoji: "⚙", color: "#76c897", accent: "#b8f2d0" },
+  { id: "verify", street: "Verification Street", emoji: "🧪", color: "#f0c276", accent: "#ffe1aa" },
+  { id: "report", street: "Reporting Street", emoji: "📝", color: "#84c8ea", accent: "#c5ebff" },
 ];
 
-const WORLD = {
-  width: 1280,
-  height: 720,
-  tile: 16,
+const PHASE_WEIGHT = {
+  plan: 2,
+  execute: 4,
+  verify: 3,
+  report: 2,
+  "approval-gate": 5,
 };
 
-const DISTRICTS = {
-  CBD: { x: 8, y: 8, w: 20, h: 12, color: "#5c88d5", glow: "#9ac1ff" },
-  Bugis: { x: 32, y: 8, w: 18, h: 12, color: "#59b885", glow: "#9de6c0" },
-  Jurong: { x: 8, y: 24, w: 20, h: 13, color: "#d88b4f", glow: "#ffbe8a" },
-  Changi: { x: 52, y: 24, w: 20, h: 13, color: "#6ea4c5", glow: "#ace0f7" },
+const ATTENTION_RANK = { none: 0, info: 1, warn: 2, critical: 3 };
+const STATUS_ORDER = { active: 0, waiting: 1, "needs-human": 2, done: 3, blocked: 4, loop: 5, failed: 6 };
+const CULDESAC_BLOCKERS = new Set(["verify_loop", "tool_fail_loop", "no_progress", "dependency_wait"]);
+
+const STATUS_TOKENS = {
+  active: { icon: "▶", className: "state-active", color: "#3dcc72" },
+  waiting: { icon: "⏳", className: "state-waiting", color: "#d7b341" },
+  "needs-human": { icon: "🧍", className: "state-needs-human", color: "#9f71df" },
+  blocked: { icon: "❗", className: "state-blocked", color: "#d24b4b" },
+  loop: { icon: "🔁", className: "state-loop", color: "#be3636" },
+  failed: { icon: "✖", className: "state-failed", color: "#7a1818" },
+  done: { icon: "✔", className: "state-done", color: "#7b8087" },
 };
 
-const PHASE_LANES = [
-  { id: "plan", street: "Planning Street", color: "#8fa9f3", accent: "#c9d9ff" },
-  { id: "execute", street: "Execution Street", color: "#76c897", accent: "#b8f2d0" },
-  { id: "verify", street: "Verification Street", color: "#f0c276", accent: "#ffe1aa" },
-  { id: "report", street: "Reporting Street", color: "#84c8ea", accent: "#c5ebff" },
-  { id: "approval", street: "Approval Street", color: "#d89ad8", accent: "#f0c6f0" },
-];
-
-const ATTENTION_RANK = {
-  none: 0,
-  info: 1,
-  warn: 2,
-  critical: 3,
-};
-const WAITING_WINDOW_MS = 120000;
-const VISUAL_STATE_COLORS = {
-  active: "#5FCF78",
-  waiting: "#E7C94C",
-  "needs-human": "#9B6DDF",
-  blocked: "#D84B4B",
-  failed: "#7C1F1F",
-  done: "#7B8087",
-  idle: "#8E99A6",
+const BLOCKER_ICON = {
+  verify_loop: "🔁",
+  tool_fail_loop: "⛔",
+  no_progress: "💤",
+  dependency_wait: "⛓",
+  none: "",
 };
 
-const HQ = { x: 40, y: 21 };
-const MARINA = { x: 34, y: 22, w: 13, h: 8 };
-
-const DISTRICT_TOOL_HINTS = {
-  Changi: /(test|tests|__tests__|pytest|jest|vitest|assert)/,
-  Jurong: /(infra|docker|k8s|terraform|helm|deploy|pipeline|ci|cd|config)/,
-  Bugis: /(ui|frontend|component|css|html|view|react|vue|svelte)/,
-  CBD: /.*/,
-};
-
-const AUNTIE_LINES = [
-  "Aiya, same error again.",
-  "Show logs first lah.",
-  "Scope too big, break down can?",
-];
-const UNCLE_LINES = ["Check env and configs."];
-const MRT_LINES = ["Train running, agent busy."];
-
-const NPCS = {
-  auntie: { x: 4, y: 30, color: "#f2be8f", label: "Auntie Debug" },
-  uncle: { x: 18, y: 38, color: "#9ed9ff", label: "Uncle Ops" },
-  mrt: { x: 49, y: 16, color: "#ffd87f", label: "MRT Controller" },
-};
+const LORONG_STREETS = ["Lorong 1", "Lorong 2", "Lorong 3", "Lorong 4", "Lorong 5", "Lorong 6", "Lorong 7", "Lorong 8"];
 
 const canvas = document.getElementById("cityCanvas");
 const ctx = canvas.getContext("2d");
 ctx.imageSmoothingEnabled = false;
 
-const CHARACTER_ATLASES = Array.from({ length: 6 }, (_, index) => {
-  const img = new Image();
-  img.src = `/assets/characters/char_${index}.png`;
-  return img;
-});
-
 const wsStatusEl = document.getElementById("wsStatus");
-const repoPathInputEl = document.getElementById("repoPathInput");
-const useGitDiffToggleEl = document.getElementById("useGitDiffToggle");
-const setRepoBtnEl = document.getElementById("setRepoBtn");
-const reconnectBtnEl = document.getElementById("reconnectBtn");
-const helperStatusEl = document.getElementById("helperStatus");
 const newRunBtnEl = document.getElementById("newRunBtn");
+const reconnectBtnEl = document.getElementById("reconnectBtn");
 const simPackBtnEl = document.getElementById("simPackBtn");
 const simScoldedBtnEl = document.getElementById("simScoldedBtn");
 const simLongtaskBtnEl = document.getElementById("simLongtaskBtn");
 const simAsleepBtnEl = document.getElementById("simAsleepBtn");
-const simSwarmBtnEl = document.getElementById("simSwarmBtn");
-const runListEl = document.getElementById("runList");
-const stuckBannerEl = document.getElementById("stuckBanner");
+const reducedMotionToggleEl = document.getElementById("reducedMotionToggle");
+const colorblindToggleEl = document.getElementById("colorblindToggle");
+const tileSizeSelectEl = document.getElementById("tileSizeSelect");
+
+const attentionQueueEl = document.getElementById("attentionQueue");
+const agentSearchEl = document.getElementById("agentSearch");
+const phaseFilterEl = document.getElementById("phaseFilter");
+const statusFilterEl = document.getElementById("statusFilter");
+const typeFilterEl = document.getElementById("typeFilter");
+const agentTableBodyEl = document.getElementById("agentTableBody");
+
+const hudModeEl = document.getElementById("hudMode");
+const hudLaneEl = document.getElementById("hudLane");
+const hudRuntimeEl = document.getElementById("hudRuntime");
+const hudBlockedSinceEl = document.getElementById("hudBlockedSince");
+const hudFirstAnomalyEl = document.getElementById("hudFirstAnomaly");
+const mapViewportEl = document.getElementById("mapViewport");
+const mapOverlayEl = document.getElementById("mapOverlay");
 const runBadgeEl = document.getElementById("runBadge");
-const storyStateEl = document.getElementById("storyState");
-const storyTitleEl = document.getElementById("storyTitle");
-const storyBodyEl = document.getElementById("storyBody");
-const storyFactsEl = document.getElementById("storyFacts");
-const storyReasonsEl = document.getElementById("storyReasons");
-const storyNextEl = document.getElementById("storyNext");
-const focusModeBtnEl = document.getElementById("focusModeBtn");
-const captionModeEl = document.getElementById("captionMode");
-const captionLaneEl = document.getElementById("captionLane");
-const captionAreaEl = document.getElementById("captionArea");
-const captionStateEl = document.getElementById("captionState");
-const captionStepEl = document.getElementById("captionStep");
-const captionFileEl = document.getElementById("captionFile");
+
+const approvalCountEl = document.getElementById("approvalCount");
+const approveNextBtnEl = document.getElementById("approveNextBtn");
+const batchApproveBtnEl = document.getElementById("batchApproveBtn");
+const approvalListEl = document.getElementById("approvalList");
+
 const playPauseBtnEl = document.getElementById("playPauseBtn");
 const liveViewBtnEl = document.getElementById("liveViewBtn");
 const replaySpeedEl = document.getElementById("replaySpeed");
@@ -133,27 +96,23 @@ const exportRunBtnEl = document.getElementById("exportRunBtn");
 const importRunInputEl = document.getElementById("importRunInput");
 const replaySliderEl = document.getElementById("replaySlider");
 const replayInfoEl = document.getElementById("replayInfo");
-const timelineListEl = document.getElementById("timelineList");
-const metricDurationEl = document.getElementById("metricDuration");
-const metricToolCountEl = document.getElementById("metricToolCount");
-const metricFileCountEl = document.getElementById("metricFileCount");
-const metricErrorCountEl = document.getElementById("metricErrorCount");
-const metricSuccessCountEl = document.getElementById("metricSuccessCount");
-const metricStuckEl = document.getElementById("metricStuck");
-const interventionTextEl = document.getElementById("interventionText");
-const inspectorSummaryEl = document.getElementById("inspectorSummary");
-const inspectorRawEl = document.getElementById("inspectorRaw");
 
-const staticLayer = buildStaticLayer();
+const drawerTitleEl = document.getElementById("drawerTitle");
+const drawerTaskEl = document.getElementById("drawerTask");
+const drawerLastSuccessEl = document.getElementById("drawerLastSuccess");
+const drawerBlockerEl = document.getElementById("drawerBlocker");
+const drawerRecommendationsEl = document.getElementById("drawerRecommendations");
+const drawerEventsEl = document.getElementById("drawerEvents");
+const jumpFirstAnomalyBtnEl = document.getElementById("jumpFirstAnomalyBtn");
+const provideInputBtnEl = document.getElementById("provideInputBtn");
 
 const state = {
   runs: new Map(),
   runOrder: [],
   selectedRunId: null,
-  activeManualRunId: null,
-  manualRunCounter: 0,
   lorongCounter: 1,
-  timelineSelectionByRun: new Map(),
+  manualRunCounter: 0,
+  activeManualRunId: null,
   timelineEventId: 1,
   ws: {
     socket: null,
@@ -161,12 +120,6 @@ const state = {
     attempts: 0,
     reconnectTimer: null,
     manualReconnect: false,
-  },
-  git: {
-    repoPath: HARDCODED_REPO_PATH,
-    useGitDiff: false,
-    lastPollAt: 0,
-    lastFingerprint: "",
   },
   replay: {
     active: false,
@@ -178,7 +131,22 @@ const state = {
     timer: null,
   },
   ui: {
-    focusMode: false,
+    selectedAgentRunId: null,
+    focusedPhase: "execute",
+    reducedMotion: false,
+    colorblindPalette: false,
+    tileSize: "m",
+    queueSearch: "",
+    queueFilters: {
+      phase: "all",
+      status: "all",
+      agentType: "all",
+    },
+    drawerOpen: false,
+    drawerMode: "overview",
+    mapDensityMode: false,
+    keyboardFocusIndex: 0,
+    tileRects: [],
   },
   simulatorTimers: [],
   persistTimer: null,
@@ -202,12 +170,29 @@ function hashString(input) {
   return h >>> 0;
 }
 
-function statusClass(status) {
-  if (status === "working") return "status-working";
-  if (status === "error") return "status-error";
-  if (status === "blocked") return "status-error";
-  if (status === "done") return "status-done";
-  return "status-idle";
+function formatDuration(ms) {
+  if (!Number.isFinite(ms) || ms <= 0) return "0s";
+  const sec = Math.floor(ms / 1000);
+  const hr = Math.floor(sec / 3600);
+  const min = Math.floor((sec % 3600) / 60);
+  const rem = sec % 60;
+  if (hr > 0) return `${hr}h ${min}m`;
+  if (min > 0) return `${min}m ${rem}s`;
+  return `${sec}s`;
+}
+
+function ageText(ts) {
+  if (!ts) return "n/a";
+  const diffSec = Math.max(0, Math.floor((nowMs() - ts) / 1000));
+  if (diffSec < 60) return `${diffSec}s`;
+  const min = Math.floor(diffSec / 60);
+  if (min < 60) return `${min}m`;
+  const hr = Math.floor(min / 60);
+  return `${hr}h ${min % 60}m`;
+}
+
+function phaseStreetLabel(phaseId) {
+  return PHASE_COLUMNS.find((item) => item.id === phaseId)?.street || "Execution Street";
 }
 
 function sanitizeRunIdentity(value) {
@@ -219,58 +204,12 @@ function sanitizeRunIdentity(value) {
     .slice(0, 80);
 }
 
-function districtFromPath(filePath) {
-  const value = String(filePath || "").toLowerCase();
-  if (/(^|\/)(tests|test|__tests__)(\/|$)/.test(value)) return "Changi";
-  if (/(infra|docker|k8s|terraform|helm|ansible)/.test(value)) return "Jurong";
-  if (/(ui|frontend|component|components|styles|css|web)/.test(value)) return "Bugis";
-  return "CBD";
-}
-
-function districtFromText(text) {
-  const lower = String(text || "").toLowerCase();
-  for (const [district, pattern] of Object.entries(DISTRICT_TOOL_HINTS)) {
-    if (pattern.test(lower)) return district;
-  }
-  return "CBD";
-}
-
-function districtMeaning(district) {
-  if (district === "Bugis") return "Frontend / UI";
-  if (district === "Jurong") return "Infra / DevOps";
-  if (district === "Changi") return "Tests / QA";
-  return "Core App / Backend";
-}
-
-function districtLabel(district) {
-  if (district === "Bugis") return "Frontend";
-  if (district === "Jurong") return "Infra";
-  if (district === "Changi") return "Tests";
-  return "Backend";
-}
-
-function prettyState(status, run) {
-  if (!run) return "Waiting";
-  if (status === "blocked") return "Blocked";
-  if (run.stuckScore > 0.7 || run.failureStreak >= 2) return "Scolded";
-  if (status === "working") return "Doing task";
-  if (status === "done") return "Done";
-  if (status === "error") return "Error";
-  return "Idle";
-}
-
-function phaseStreetLabel(phaseId) {
-  const lane = PHASE_LANES.find((item) => item.id === phaseId);
-  return lane?.street || "Execution Street";
-}
-
 function inferPhaseFromText(text) {
   const value = String(text || "").toLowerCase();
   if (!value) return null;
   if (/\b(plan|planning|scope|design|investigate|analysis|research)\b/.test(value)) return "plan";
   if (/\b(verify|verification|test|assert|qa|validate|check)\b/.test(value)) return "verify";
   if (/\b(report|summary|summarize|writeup|narrative|explain|handoff)\b/.test(value)) return "report";
-  if (/\b(approval|approve|review|signoff|sign-off|permission|gate)\b/.test(value)) return "approval";
   if (/\b(execute|implement|patch|edit|build|run|code|fix)\b/.test(value)) return "execute";
   return null;
 }
@@ -280,146 +219,21 @@ function inferPhaseForDerived(derived) {
   return inferPhaseFromText(parts) || "execute";
 }
 
-function inferBlockedFromDerived(derived) {
-  const text = `${derived.rawType || ""} ${derived.message || ""}`.toLowerCase();
-  return /(blocked|waiting for approval|awaiting approval|awaiting user|needs user input|human input|on hold)/.test(
-    text
-  );
-}
-
 function inferNeedsAttentionSeverity(run) {
   if (!run) return "none";
-  if (run.status === "blocked" || run.blocked || run.stuckScore >= 0.85) return "critical";
-  if (run.status === "error" || run.stuckScore > 0.7 || run.failureStreak >= 2) return "warn";
-  if (run.status === "idle" && nowMs() - (run.lastTs || run.createdAt) > WAITING_WINDOW_MS) return "info";
+  if (run.operationalStatus === "failed" || run.operationalStatus === "loop" || run.operationalStatus === "blocked") {
+    return "critical";
+  }
+  if (run.operationalStatus === "needs-human") return "warn";
+  if (run.operationalStatus === "waiting" && nowMs() - (run.lastTs || run.createdAt) > 120000) return "info";
   return "none";
 }
 
-function isRunInCulDeSac(run) {
-  const severity = inferNeedsAttentionSeverity(run);
-  return run.status === "blocked" || Boolean(run.blocked) || (ATTENTION_RANK[severity] || 0) >= ATTENTION_RANK.warn;
-}
-
-function isHumanInterventionReason(text) {
-  const value = String(text || "").toLowerCase();
-  return /(awaiting approval|needs user input|human input|awaiting user|waiting for user|needs human|manual approval)/.test(
-    value
-  );
-}
-
-function classifyVisualState(run) {
-  if (!run) return "idle";
-  if (run.status === "error") return "failed";
-  if (run.status === "blocked") return "blocked";
-
-  const blockedReason = run.blockedReason || "";
-  const severity = run.needsAttentionSeverity || inferNeedsAttentionSeverity(run);
-  if (run.blocked && isHumanInterventionReason(blockedReason)) return "needs-human";
-  if (
-    (severity === "warn" || severity === "critical") &&
-    isHumanInterventionReason(blockedReason || run.intervention || "")
-  ) {
-    return "needs-human";
-  }
-
-  if (run.status === "working") return "active";
-  if (run.status === "done") return "done";
-
-  if (run.status === "idle") {
-    const lastEventAt = run.lastTs || run.createdAt || 0;
-    if (nowMs() - lastEventAt <= WAITING_WINDOW_MS) return "waiting";
-    return "idle";
-  }
-
-  return "idle";
-}
-
-function shirtColorForRun(run) {
-  return VISUAL_STATE_COLORS[classifyVisualState(run)] || VISUAL_STATE_COLORS.idle;
-}
-
-function tileToPx(col, row) {
-  return {
-    x: col * WORLD.tile,
-    y: row * WORLD.tile,
-  };
-}
-
-function districtCenterPx(name) {
-  const d = DISTRICTS[name] || DISTRICTS.CBD;
-  return {
-    x: (d.x + d.w / 2) * WORLD.tile,
-    y: (d.y + d.h / 2) * WORLD.tile,
-  };
-}
-
-function formatTime(ts) {
-  const date = new Date(ts);
-  return date.toLocaleTimeString();
-}
-
-function formatDuration(ms) {
-  if (!Number.isFinite(ms) || ms <= 0) return "0s";
-  const sec = Math.floor(ms / 1000);
-  const min = Math.floor(sec / 60);
-  const rem = sec % 60;
-  if (min > 0) return `${min}m ${rem}s`;
-  return `${sec}s`;
-}
-
-function ageText(ts) {
-  if (!ts) return "n/a";
-  const diffSec = Math.max(0, Math.floor((nowMs() - ts) / 1000));
-  if (diffSec < 5) return "just now";
-  if (diffSec < 60) return `${diffSec}s ago`;
-  const min = Math.floor(diffSec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  return `${hr}h ago`;
-}
-
-function levelFromTouches(touches) {
-  if (touches >= 5) return 3;
-  if (touches >= 2) return 2;
-  return 1;
-}
-
-function hexToRgba(hex, alpha = 1) {
-  const clean = String(hex || "").trim().replace("#", "");
-  if (!/^[0-9a-fA-F]{6}$/.test(clean)) {
-    return `rgba(255, 255, 255, ${alpha})`;
-  }
-
-  const r = Number.parseInt(clean.slice(0, 2), 16);
-  const g = Number.parseInt(clean.slice(2, 4), 16);
-  const b = Number.parseInt(clean.slice(4, 6), 16);
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
-
-function makeDistrictSlots() {
-  const all = {};
-  for (const [district, bounds] of Object.entries(DISTRICTS)) {
-    const slots = [];
-    let i = 0;
-    for (let y = bounds.y + 2; y <= bounds.y + bounds.h - 3; y += 3) {
-      for (let x = bounds.x + 2; x <= bounds.x + bounds.w - 4; x += 4) {
-        slots.push({ district, index: i, col: x, row: y });
-        i += 1;
-      }
-    }
-    all[district] = slots;
-  }
-  return all;
-}
-
-const DISTRICT_SLOTS = makeDistrictSlots();
-
-function createEmptyNpcState() {
-  return {
-    auntie: { text: "", until: 0, nextIndex: 0 },
-    uncle: { text: "", until: 0, nextIndex: 0 },
-    mrt: { text: "", until: 0, nextIndex: 0 },
-  };
+function inferAgentType(run) {
+  if (!run) return "main";
+  if (run.simulated) return "simulated";
+  if (run.manual) return "manual";
+  return "main";
 }
 
 function nextLorongName() {
@@ -452,59 +266,35 @@ function createRun({ runId, agentId, label, laneName, manual = false, simulated 
     fileCount: 0,
     errorCount: 0,
     successCount: 0,
-    noteCount: 0,
-    fileStats: new Map(),
-    slotStats: {
-      CBD: new Map(),
-      Bugis: new Map(),
-      Jurong: new Map(),
-      Changi: new Map(),
-    },
-    districtTouches: {
-      CBD: 0,
-      Bugis: 0,
-      Jurong: 0,
-      Changi: 0,
-    },
-    vehicles: [],
-    effects: [],
-    toolTimes: [],
-    fileTimes: [],
-    errorSignatures: [],
     failureStreak: 0,
     lastToolAt: 0,
     lastFileChangeAt: 0,
-    stuckScore: 0,
-    stuckReason: "",
-    intervention: "No intervention needed yet.",
-    npcs: createEmptyNpcState(),
-    lastBubbleAt: {
-      auntie: 0,
-      uncle: 0,
-      mrt: 0,
-    },
-    noisyEventAt: new Map(),
+    lastSuccessTs: 0,
+    blockedSinceTs: 0,
+    firstAnomalyTs: 0,
+    blockerClass: "none",
+    requiresHumanGate: false,
+    approvalSummary: "",
+    approvalRisk: "low",
+    previousPhaseBeforeApproval: null,
+    operationalStatus: "waiting",
+    runtimeMs: 0,
+    lastActionTs: 0,
+    errorSignatures: [],
     highlight: null,
   };
 }
 
-function getRunLabelFromIdentity(identity) {
-  if (!identity) return "codex:main";
-  return `codex:${identity}`;
-}
-
 function ensureRun(runId, { agentId, label, laneName, manual = false, simulated = false } = {}) {
   if (state.runs.has(runId)) return state.runs.get(runId);
-
   const run = createRun({
     runId,
     agentId: agentId || `codex:${runId}`,
     label: label || agentId || `codex:${runId}`,
-    laneName: laneName || nextLorongName(),
+    laneName,
     manual,
     simulated,
   });
-
   state.runs.set(runId, run);
   state.runOrder.unshift(runId);
   if (!state.selectedRunId) state.selectedRunId = runId;
@@ -512,133 +302,167 @@ function ensureRun(runId, { agentId, label, laneName, manual = false, simulated 
 }
 
 function ensureMainRun() {
-  const run = ensureRun("main", {
-    agentId: "codex:main",
-    label: "codex:main",
-  });
-
-  if (!state.activeManualRunId) {
-    state.activeManualRunId = run.runId;
-  }
+  const run = ensureRun("main", { agentId: "codex:main", label: "codex:main" });
+  if (!state.activeManualRunId) state.activeManualRunId = run.runId;
 }
 
 function pickRunForRawEvent(rawEvent, forceRunId = null) {
-  if (forceRunId) {
-    const forced = ensureRun(forceRunId, {
-      agentId: forceRunId.startsWith("manual:")
-        ? `codex:run:${forceRunId.split(":")[1] || "manual"}`
-        : `codex:${forceRunId}`,
-      label: forceRunId.startsWith("manual:")
-        ? `codex:run:${forceRunId.split(":")[1] || "manual"}`
-        : `codex:${forceRunId}`,
-    });
-    return forced;
-  }
-
+  if (forceRunId) return ensureRun(forceRunId, { agentId: `codex:${forceRunId}`, label: `codex:${forceRunId}` });
   const identity = sanitizeRunIdentity(extractRunIdentity(rawEvent));
   if (identity) {
     const runId = `explicit:${identity}`;
-    const run = ensureRun(runId, {
-      agentId: getRunLabelFromIdentity(identity),
-      label: getRunLabelFromIdentity(identity),
+    return ensureRun(runId, {
+      agentId: `codex:${identity}`,
+      label: `codex:${identity}`,
       simulated: identity.startsWith("sim-"),
     });
-    return run;
   }
-
   return ensureRun(state.activeManualRunId || "main", {
-    agentId:
-      state.activeManualRunId && state.activeManualRunId.startsWith("manual:")
-        ? `codex:run:${state.activeManualRunId.split(":")[1] || "main"}`
-        : "codex:main",
-    label:
-      state.activeManualRunId && state.activeManualRunId.startsWith("manual:")
-        ? `codex:run:${state.activeManualRunId.split(":")[1] || "main"}`
-        : "codex:main",
+    agentId: state.activeManualRunId ? `codex:${state.activeManualRunId}` : "codex:main",
+    label: state.activeManualRunId ? `codex:${state.activeManualRunId}` : "codex:main",
   });
 }
 
-function pruneTimes(list, now, windowMs) {
-  while (list.length > 0 && now - list[0] > windowMs) {
-    list.shift();
+function addTimelineRecord(run, rawEvent, derivedEvents) {
+  const ts = derivedEvents[0]?.ts || getRawEventTimestamp(rawEvent);
+  const rawType = derivedEvents[0]?.rawType || getRawEventType(rawEvent);
+  const filePath = derivedEvents.find((item) => item.filePath)?.filePath || null;
+  const record = {
+    id: state.timelineEventId,
+    ts,
+    rawType,
+    rawEvent,
+    derived: derivedEvents,
+    summary: deriveSummary(derivedEvents),
+    filePath,
+  };
+  state.timelineEventId += 1;
+  run.timeline.push(record);
+  if (run.timeline.length > 3000) run.timeline.shift();
+  return record;
+}
+
+function deriveSummary(derivedEvents) {
+  const kinds = derivedEvents.map((item) => item.kind);
+  if (kinds.includes("error")) {
+    const err = derivedEvents.find((item) => item.kind === "error");
+    return `Error: ${err?.message || "unknown"}`;
+  }
+  if (kinds.includes("success")) return "Success event";
+  if (kinds.includes("file.changed")) {
+    const file = derivedEvents.find((item) => item.kind === "file.changed");
+    return `File changed: ${file?.filePath || "unknown"}`;
+  }
+  if (kinds.includes("tool.activity")) {
+    const tool = derivedEvents.find((item) => item.kind === "tool.activity");
+    return `Tool activity: ${tool?.toolName || "tool"}`;
+  }
+  return derivedEvents[0]?.message || "Note";
+}
+
+function isHumanText(value) {
+  const text = String(value || "").toLowerCase();
+  return /(approval|approve|awaiting user|needs user input|human input|manual gate|waiting for user|review)/.test(text);
+}
+
+function classifyBlocker(run) {
+  const recent = run.timeline.slice(-20);
+  const recentText = recent.map((record) => `${record.rawType} ${record.summary}`).join(" ").toLowerCase();
+  const verifyErrors = recent.filter((record) => /verify|test|assert|qa/.test(`${record.rawType} ${record.summary}`.toLowerCase()) && /error|failed|failure/.test(record.summary.toLowerCase())).length;
+
+  const signatureCounts = new Map();
+  for (const item of run.errorSignatures) {
+    signatureCounts.set(item.signature, (signatureCounts.get(item.signature) || 0) + 1);
+  }
+  const repeatedSameFailure = Array.from(signatureCounts.values()).some((count) => count >= 2);
+
+  if (/(dependency|waiting on|network lock|install lock|upstream pending|blocked by service)/.test(recentText)) {
+    return "dependency_wait";
+  }
+  if (verifyErrors >= 2) return "verify_loop";
+  if (repeatedSameFailure) return "tool_fail_loop";
+
+  const noProgress = run.lastToolAt > 0 && run.lastToolAt > run.lastFileChangeAt && nowMs() - run.lastToolAt > 120000;
+  if (noProgress) return "no_progress";
+
+  if (run.blocked) return "no_progress";
+  return "none";
+}
+
+function riskForRun(run) {
+  const blockedAge = run.blockedSinceTs ? nowMs() - run.blockedSinceTs : 0;
+  if (run.needsAttentionSeverity === "critical" || run.failureStreak >= 3 || blockedAge > 30 * 60 * 1000) return "high";
+  if (run.needsAttentionSeverity === "warn" || blockedAge > 10 * 60 * 1000) return "med";
+  return "low";
+}
+
+function operationalStatus(run) {
+  if (run.requiresHumanGate) return "needs-human";
+  if (run.status === "error") return "failed";
+  if (run.blockerClass === "verify_loop" || run.blockerClass === "tool_fail_loop") return "loop";
+  if (run.blocked) return "blocked";
+  if (run.status === "done") return "done";
+  if (run.status === "working") return "active";
+  const idleAge = nowMs() - (run.lastTs || run.createdAt || nowMs());
+  if (idleAge <= 120000) return "waiting";
+  return "waiting";
+}
+
+function phaseImpact(run) {
+  if (run.requiresHumanGate) return PHASE_WEIGHT["approval-gate"];
+  return PHASE_WEIGHT[run.currentPhase] || 1;
+}
+
+function updateRunDerivedFields(run) {
+  run.blockerClass = classifyBlocker(run);
+
+  const shouldBlock = run.blocked || CULDESAC_BLOCKERS.has(run.blockerClass);
+  if (shouldBlock) {
+    if (!run.blockedSinceTs) run.blockedSinceTs = run.lastTs || nowMs();
+  } else {
+    run.blockedSinceTs = 0;
+  }
+
+  run.operationalStatus = operationalStatus(run);
+  run.runtimeMs = Math.max(0, (run.lastTs || run.createdAt) - (run.firstTs || run.createdAt));
+  run.lastActionTs = run.lastTs || run.createdAt;
+  run.needsAttentionSeverity = inferNeedsAttentionSeverity(run);
+  run.approvalRisk = riskForRun(run);
+
+  const anomalous = ["blocked", "loop", "failed"].includes(run.operationalStatus);
+  if (anomalous && !run.firstAnomalyTs) {
+    run.firstAnomalyTs = run.lastTs || nowMs();
   }
 }
 
-function rotateLine(run, who, lines, cooldownMs = 5000) {
-  const now = nowMs();
-  if (now - run.lastBubbleAt[who] < cooldownMs) return;
-  const npc = run.npcs[who];
-  const next = lines[npc.nextIndex % lines.length];
-  npc.text = next;
-  npc.until = now + 5000;
-  npc.nextIndex += 1;
-  run.lastBubbleAt[who] = now;
+function updateAllDerived() {
+  for (const run of state.runs.values()) updateRunDerivedFields(run);
+  if (state.replay.active && state.replay.previewRun) updateRunDerivedFields(state.replay.previewRun);
 }
 
-function applyDerivedEvent(run, derived, options = {}) {
-  const transient = options.transient !== false;
+function applyDerivedEvent(run, derived) {
   const ts = derived.ts || nowMs();
-  const rawType = derived.rawType || "unknown";
-  const text = `${rawType} ${derived.message || ""}`.toLowerCase();
-  run.currentPhase = inferPhaseForDerived(derived);
+  const text = `${derived.rawType || ""} ${derived.message || ""}`.toLowerCase();
 
+  run.currentPhase = inferPhaseForDerived(derived);
   if (run.firstTs === null) run.firstTs = ts;
   run.lastTs = Math.max(run.lastTs || 0, ts);
 
-  if (derived.kind === "step.started") {
-    run.status = "working";
-  }
-
-  if (derived.kind === "step.ended") {
-    if (run.status !== "error") {
-      run.status = "done";
-    }
-  }
+  if (derived.kind === "step.started") run.status = "working";
+  if (derived.kind === "step.ended" && run.status !== "error") run.status = "done";
 
   if (derived.kind === "tool.activity") {
     run.toolCount += 1;
     run.lastToolAt = ts;
-    run.toolTimes.push(ts);
     run.status = "working";
-
-    const district = districtFromText(`${text} ${derived.toolName || ""}`);
-    if (transient) spawnVehicle(run, district, derived.toolName || "tool");
-
-    if (run.toolTimes.length >= 6) {
-      rotateLine(run, "mrt", MRT_LINES, 4000);
-    }
     run.blocked = false;
     run.blockedReason = "";
   }
 
-  if (derived.kind === "file.changed" && derived.filePath) {
+  if (derived.kind === "file.changed") {
     run.fileCount += 1;
     run.lastFileChangeAt = ts;
-    run.fileTimes.push(ts);
-
-    const district = districtFromPath(derived.filePath);
-    run.districtTouches[district] += 1;
-
-    const slots = DISTRICT_SLOTS[district];
-    const slotIndex = hashString(derived.filePath) % slots.length;
-
-    const previous = run.fileStats.get(derived.filePath) || {
-      touches: 0,
-      district,
-      slotIndex,
-    };
-
-    previous.touches += 1;
-    previous.district = district;
-    previous.slotIndex = slotIndex;
-    run.fileStats.set(derived.filePath, previous);
-
-    const slotMap = run.slotStats[district];
-    const slotState = slotMap.get(slotIndex) || { touches: 0, level: 1, filePath: derived.filePath };
-    slotState.touches += 1;
-    slotState.level = Math.max(slotState.level, levelFromTouches(previous.touches));
-    slotState.filePath = derived.filePath;
-    slotMap.set(slotIndex, slotState);
+    run.status = "working";
     run.blocked = false;
     run.blockedReason = "";
   }
@@ -647,143 +471,54 @@ function applyDerivedEvent(run, derived, options = {}) {
     run.errorCount += 1;
     run.failureStreak += 1;
     run.status = "error";
-
-    const signature = derived.signature || (derived.message || rawType).toLowerCase().slice(0, 90);
+    const signature = (derived.signature || derived.message || derived.rawType || "error").toLowerCase().slice(0, 96);
     run.errorSignatures.push({ ts, signature });
-
-    const district = districtFromText(`${text} ${derived.message || ""}`);
-    if (transient) {
-      spawnBeacon(run, district);
-      spawnSmoke(run, district);
-    }
-
-    rotateLine(run, "auntie", AUNTIE_LINES, 2600);
-
-    if (district === "Jurong") {
-      rotateLine(run, "uncle", UNCLE_LINES, 3600);
-    }
+    if (run.errorSignatures.length > 200) run.errorSignatures.shift();
   }
 
   if (derived.kind === "success") {
     run.successCount += 1;
     run.failureStreak = 0;
-    if (run.status !== "error") {
-      run.status = "done";
-    }
-
-    if (transient) {
-      spawnFireworks(run);
-    }
+    run.status = "done";
+    run.lastSuccessTs = ts;
     run.blocked = false;
     run.blockedReason = "";
   }
 
-  if (derived.kind === "note") {
-    run.noteCount += 1;
-  }
-
-  if (/codex\.exit/.test(rawType.toLowerCase())) {
-    if (String(derived.message || "").includes("0")) {
-      run.status = "done";
-    }
-  }
-
-  if (inferBlockedFromDerived(derived)) {
+  if (/(blocked|on hold|awaiting|waiting for)/.test(text)) {
     run.blocked = true;
-    run.blockedReason = derived.message || rawType;
-    run.status = "blocked";
-  }
-}
-
-function evaluateStuck(run, clock = nowMs()) {
-  const windowMs = 2 * 60 * 1000;
-
-  pruneTimes(run.toolTimes, clock, windowMs);
-  pruneTimes(run.fileTimes, clock, windowMs);
-
-  while (run.errorSignatures.length > 0 && clock - run.errorSignatures[0].ts > windowMs) {
-    run.errorSignatures.shift();
+    run.blockedReason = derived.message || derived.rawType || "blocked";
   }
 
-  const signatureCounts = new Map();
-  for (const item of run.errorSignatures) {
-    signatureCounts.set(item.signature, (signatureCounts.get(item.signature) || 0) + 1);
-  }
-
-  const repeatedError = Array.from(signatureCounts.values()).some((count) => count >= 2);
-  const busyNoFile = run.toolTimes.length >= 5 && run.fileTimes.length === 0;
-  const failureSpree = run.failureStreak >= 3;
-
-  let score = 0;
-  if (repeatedError) score += 0.45;
-  if (busyNoFile) score += 0.35;
-  if (failureSpree) score += 0.3;
-  if (run.status === "error") score += 0.12;
-
-  run.stuckScore = clamp(score, 0, 1);
-
-  if (run.stuckScore > 0.7) {
-    if (busyNoFile) {
-      run.stuckReason = "Tool loops are active but files are not changing.";
-      run.intervention = "Ask the agent to summarise what it tried and propose next steps";
-    } else {
-      run.stuckReason = "Repeated failures detected.";
-      run.intervention = "Try narrowing scope and asking for one failing test only";
+  if (isHumanText(text)) {
+    run.requiresHumanGate = true;
+    run.approvalSummary = derived.message || "Requires approval";
+    if (!run.previousPhaseBeforeApproval) {
+      run.previousPhaseBeforeApproval = run.currentPhase;
     }
-    rotateLine(run, "auntie", AUNTIE_LINES, 2200);
-  } else {
-    run.stuckReason = "";
-    run.intervention = "No intervention needed yet.";
   }
-
-  run.needsAttentionSeverity = inferNeedsAttentionSeverity(run);
 }
 
-function summariseEvent(derivedEvents) {
-  const kinds = derivedEvents.map((item) => item.kind);
+function integrateDerivedSet(run, rawEvent, derivedEvents, options = {}) {
+  if (run.rawEvents.length > 4000) run.rawEvents.shift();
+  run.rawEvents.push(rawEvent);
 
-  if (kinds.includes("error")) {
-    const err = derivedEvents.find((item) => item.kind === "error");
-    return `Agent hit an error: ${err?.message || "unknown error"}`;
+  addTimelineRecord(run, rawEvent, derivedEvents);
+  for (const derived of derivedEvents) {
+    applyDerivedEvent(run, derived);
   }
-  if (kinds.includes("file.changed")) {
-    const file = derivedEvents.find((item) => item.kind === "file.changed");
-    return `Agent changed file: ${file?.filePath || "file"}`;
-  }
-  if (kinds.includes("success")) {
-    return "Agent reported success";
-  }
-  if (kinds.includes("tool.activity")) {
-    const tool = derivedEvents.find((item) => item.kind === "tool.activity");
-    return `Agent is using tool ${tool?.toolName ? tool.toolName : "tool"}`;
-  }
-  const note = derivedEvents.find((item) => item.kind === "note");
-  return note?.message ? `Agent note: ${note.message}` : "Agent note";
+
+  if (!options.skipPersistence) queuePersistence();
 }
 
-function addTimelineRecord(run, rawEvent, derivedEvents) {
-  const ts = derivedEvents[0]?.ts || getRawEventTimestamp(rawEvent);
-  const rawType = derivedEvents[0]?.rawType || getRawEventType(rawEvent);
-  const fileEvent = derivedEvents.find((item) => item.kind === "file.changed");
-  const district = fileEvent ? districtFromPath(fileEvent.filePath) : districtFromText(rawType);
-
-  const record = {
-    id: state.timelineEventId,
-    ts,
-    rawType,
-    rawEvent,
-    derived: derivedEvents,
-    summary: summariseEvent(derivedEvents),
-    district,
-    filePath: fileEvent?.filePath || null,
-  };
-
-  state.timelineEventId += 1;
-
-  run.timeline.push(record);
-  if (run.timeline.length > 3000) run.timeline.shift();
-
-  return record;
+function ingestRawEvent(rawEvent, options = {}) {
+  if (!rawEvent || typeof rawEvent !== "object") return;
+  const run = pickRunForRawEvent(rawEvent, options.forceRunId || null);
+  const derivedEvents = mapCodexToVizEvents(rawEvent);
+  integrateDerivedSet(run, rawEvent, derivedEvents, { skipPersistence: options.skipPersistence === true });
+  if (!state.selectedRunId) state.selectedRunId = run.runId;
+  updateAllDerived();
+  renderUi();
 }
 
 function queuePersistence() {
@@ -791,7 +526,7 @@ function queuePersistence() {
   state.persistTimer = window.setTimeout(() => {
     state.persistTimer = null;
     persistRunsToStorage();
-  }, 600);
+  }, 500);
 }
 
 function persistRunsToStorage() {
@@ -811,43 +546,55 @@ function persistRunsToStorage() {
       };
     })
     .filter(Boolean);
-
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
   } catch {
-    // Ignore localStorage quota errors.
+    // ignore
   }
 }
 
 function persistSettings() {
   const payload = {
-    repoPath: state.git.repoPath,
-    useGitDiff: state.git.useGitDiff,
-    focusMode: state.ui.focusMode,
+    reducedMotion: state.ui.reducedMotion,
+    colorblindPalette: state.ui.colorblindPalette,
+    tileSize: state.ui.tileSize,
+    queueSearch: state.ui.queueSearch,
+    queueFilters: state.ui.queueFilters,
   };
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(payload));
   } catch {
-    // Ignore storage write failures.
+    // ignore
   }
 }
 
 function restoreSettings() {
   try {
     const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
-    if (typeof parsed.useGitDiff === "boolean") {
-      state.git.useGitDiff = parsed.useGitDiff;
+    if (typeof parsed.reducedMotion === "boolean") state.ui.reducedMotion = parsed.reducedMotion;
+    if (typeof parsed.colorblindPalette === "boolean") state.ui.colorblindPalette = parsed.colorblindPalette;
+    if (["s", "m", "l"].includes(parsed.tileSize)) state.ui.tileSize = parsed.tileSize;
+    if (typeof parsed.queueSearch === "string") state.ui.queueSearch = parsed.queueSearch;
+    if (parsed.queueFilters && typeof parsed.queueFilters === "object") {
+      state.ui.queueFilters = {
+        phase: parsed.queueFilters.phase || "all",
+        status: parsed.queueFilters.status || "all",
+        agentType: parsed.queueFilters.agentType || "all",
+      };
     }
   } catch {
-    // Ignore invalid settings payload.
+    // ignore
   }
 
-  state.ui.focusMode = false;
-  state.git.repoPath = HARDCODED_REPO_PATH;
-  repoPathInputEl.value = state.git.repoPath;
-  useGitDiffToggleEl.checked = state.git.useGitDiff;
-  document.body.classList.toggle("focus-mode", state.ui.focusMode);
-  focusModeBtnEl.textContent = `Focus View: ${state.ui.focusMode ? "On" : "Off"}`;
+  reducedMotionToggleEl.checked = state.ui.reducedMotion;
+  colorblindToggleEl.checked = state.ui.colorblindPalette;
+  tileSizeSelectEl.value = state.ui.tileSize;
+  agentSearchEl.value = state.ui.queueSearch;
+  phaseFilterEl.value = state.ui.queueFilters.phase;
+  statusFilterEl.value = state.ui.queueFilters.status;
+  typeFilterEl.value = state.ui.queueFilters.agentType;
+  document.body.classList.toggle("reduced-motion", state.ui.reducedMotion);
+  document.body.classList.toggle("colorblind", state.ui.colorblindPalette);
 }
 
 function restoreRunsFromStorage() {
@@ -857,15 +604,10 @@ function restoreRunsFromStorage() {
   } catch {
     parsed = [];
   }
-
-  if (!Array.isArray(parsed) || parsed.length === 0) return;
-
-  let maxManualId = 0;
+  if (!Array.isArray(parsed)) return;
 
   for (const item of parsed) {
-    if (!item || typeof item !== "object") continue;
-    if (!item.runId || !Array.isArray(item.rawEvents)) continue;
-
+    if (!item || !item.runId || !Array.isArray(item.rawEvents)) continue;
     const run = ensureRun(item.runId, {
       agentId: item.agentId || `codex:${item.runId}`,
       label: item.label || item.agentId || `codex:${item.runId}`,
@@ -873,628 +615,20 @@ function restoreRunsFromStorage() {
       manual: Boolean(item.manual),
       simulated: Boolean(item.simulated),
     });
-
     run.createdAt = Number(item.createdAt) || run.createdAt;
 
     for (const rawEvent of item.rawEvents) {
-      integrateRawEvent(run, rawEvent, {
-        source: "restore",
-        transient: false,
-        skipPersistence: true,
-        allowGitDiff: false,
-      });
-    }
-
-    run.vehicles = [];
-    run.effects = [];
-
-    if (typeof run.runId === "string" && run.runId.startsWith("manual:")) {
-      const parsedManual = Number(run.runId.split(":")[1]);
-      if (Number.isFinite(parsedManual)) {
-        maxManualId = Math.max(maxManualId, parsedManual);
-      }
-    }
-
-    if (typeof run.laneName === "string") {
-      const match = run.laneName.match(/^Lorong\s+(\d+)/i);
-      if (match) {
-        const parsedLorong = Number(match[1]);
-        if (Number.isFinite(parsedLorong)) {
-          state.lorongCounter = Math.max(state.lorongCounter, parsedLorong + 1);
-        }
-      }
+      const derivedEvents = mapCodexToVizEvents(rawEvent);
+      integrateDerivedSet(run, rawEvent, derivedEvents, { skipPersistence: true });
     }
   }
 
-  if (maxManualId > 0) {
-    state.manualRunCounter = maxManualId;
-  }
+  updateAllDerived();
 }
 
-function ingestRawEvent(rawEvent, options = {}) {
-  if (!rawEvent || typeof rawEvent !== "object") return;
-
-  const run = pickRunForRawEvent(rawEvent, options.forceRunId || null);
-  integrateRawEvent(run, rawEvent, {
-    source: options.source || "ws",
-    transient: options.transient !== false,
-    skipPersistence: options.skipPersistence === true,
-    allowGitDiff: options.allowGitDiff !== false,
-  });
-
-  if (!state.selectedRunId) {
-    state.selectedRunId = run.runId;
-  }
-
-  renderUi();
-}
-
-function integrateDerivedSet(run, rawEvent, derivedEvents, options = {}) {
-  const transient = options.transient !== false;
-
-  if (run.rawEvents.length > 4000) {
-    run.rawEvents.shift();
-  }
-  run.rawEvents.push(rawEvent);
-
-  let record = null;
-  if (!options.skipTimeline) {
-    record = addTimelineRecord(run, rawEvent, derivedEvents);
-  }
-
-  for (const derived of derivedEvents) {
-    applyDerivedEvent(run, derived, { transient });
-  }
-
-  evaluateStuck(run);
-
-  if (run.stuckScore > 0.7 && transient && record) {
-    run.highlight = {
-      district: record.district,
-      filePath: record.filePath,
-      until: nowMs() + 2400,
-    };
-  }
-
-  if (!options.skipPersistence) {
-    queuePersistence();
-  }
-
-  return record;
-}
-
-function noisyMethodThrottleKey(rawEvent) {
-  const method = String(rawEvent?.method || "").toLowerCase();
-  if (!method) return null;
-
-  if (method === "item/commandexecution/outputdelta") return method;
-  if (method === "item/agentmessage/delta") return method;
-  if (method.startsWith("item/reasoning/")) return method;
-  return null;
-}
-
-function shouldThrottleNoisyEvent(run, rawEvent) {
-  const key = noisyMethodThrottleKey(rawEvent);
-  if (!key) return false;
-
-  const now = nowMs();
-  const last = run.noisyEventAt.get(key) || 0;
-  const throttleMs = key === "item/agentmessage/delta" ? 700 : 500;
-  if (now - last < throttleMs) return true;
-
-  run.noisyEventAt.set(key, now);
-  return false;
-}
-
-function shouldPollGitDiff(run, derivedEvents, source) {
-  if (source === "git") return false;
-  if (!state.git.useGitDiff || !state.git.repoPath) return false;
-
-  if (run.rawEvents.length <= 1) return true;
-
-  if (derivedEvents.some((item) => item.kind === "step.started" || item.kind === "step.ended")) {
-    return true;
-  }
-
-  return false;
-}
-
-async function pollGitDiffForRun(run) {
-  const currentTime = nowMs();
-  if (currentTime - state.git.lastPollAt < 1500) return;
-  state.git.lastPollAt = currentTime;
-
-  try {
-    const response = await fetch(`${DIFF_HELPER_URL}/api/diff`);
-    if (!response.ok) {
-      helperStatusEl.textContent = "Helper: diff unavailable";
-      return;
-    }
-
-    const payload = await response.json();
-    if (!payload || !Array.isArray(payload.files)) return;
-
-    helperStatusEl.textContent = `Helper: ${payload.changedFiles || payload.files.length} changed file(s)`;
-
-    const fingerprint = payload.files
-      .map((file) => `${file.path}:${file.added}:${file.deleted}`)
-      .sort()
-      .join("|");
-
-    if (fingerprint === state.git.lastFingerprint) {
-      return;
-    }
-
-    state.git.lastFingerprint = fingerprint;
-
-    const derived = payload.files.map((file) => ({
-      kind: "file.changed",
-      rawType: "helper.git.diff",
-      ts: nowMs(),
-      filePath: file.path,
-      message: `git diff +${file.added} -${file.deleted}`,
-      added: file.added,
-      deleted: file.deleted,
-    }));
-
-    const rawEvent = {
-      type: "helper.git.diff",
-      ts: nowMs(),
-      files: payload.files,
-      repoPath: payload.repoPath,
-    };
-
-    integrateDerivedSet(run, rawEvent, derived, {
-      source: "git",
-      transient: true,
-      skipPersistence: false,
-    });
-
-    renderUi();
-  } catch {
-    helperStatusEl.textContent = "Helper: offline";
-  }
-}
-
-function integrateRawEvent(run, rawEvent, options = {}) {
-  const source = options.source || "ws";
-  const skipTimeline = shouldThrottleNoisyEvent(run, rawEvent);
-  const derivedEvents = mapCodexToVizEvents(rawEvent);
-  const record = integrateDerivedSet(run, rawEvent, derivedEvents, {
-    transient: options.transient !== false,
-    skipPersistence: options.skipPersistence === true,
-    skipTimeline,
-  });
-
-  if (shouldPollGitDiff(run, derivedEvents, source) && options.allowGitDiff !== false) {
-    pollGitDiffForRun(run);
-  }
-
-  return record;
-}
-
-function selectRun(runId) {
-  if (!state.runs.has(runId)) return;
-
-  state.selectedRunId = runId;
-  if (state.replay.active && state.replay.sourceRunId !== runId) {
-    stopReplay();
-  }
-
-  renderUi();
-}
-
-function createManualRun() {
-  state.manualRunCounter += 1;
-  const runId = `manual:${state.manualRunCounter}`;
-  const run = ensureRun(runId, {
-    manual: true,
-    agentId: `codex:run:${state.manualRunCounter}`,
-    label: `codex:run:${state.manualRunCounter}`,
-  });
-
-  state.activeManualRunId = run.runId;
-  state.selectedRunId = run.runId;
-  renderUi();
-}
-
-function spawnVehicle(run, district, toolName) {
-  const start = tileToPx(HQ.x, HQ.y);
-  const end = districtCenterPx(district);
-
-  run.vehicles.push({
-    x: start.x,
-    y: start.y,
-    startX: start.x,
-    startY: start.y,
-    endX: end.x,
-    endY: end.y,
-    progress: 0,
-    duration: 1.2 + (hashString(`${toolName}-${nowMs()}`) % 100) / 100,
-    district,
-    toolName,
-    color: district === "Jurong" ? "#ffb269" : district === "Bugis" ? "#7ce0ac" : "#79b8ff",
-  });
-}
-
-function spawnBeacon(run, district) {
-  const center = districtCenterPx(district);
-  run.effects.push({
-    type: "beacon",
-    x: center.x,
-    y: center.y,
-    age: 0,
-    ttl: 1.8,
-  });
-}
-
-function spawnSmoke(run, district) {
-  const center = districtCenterPx(district);
-  for (let i = 0; i < 6; i += 1) {
-    run.effects.push({
-      type: "smoke",
-      x: center.x + (Math.random() * 20 - 10),
-      y: center.y + 8 + Math.random() * 8,
-      vx: Math.random() * 8 - 4,
-      vy: -12 - Math.random() * 10,
-      age: 0,
-      ttl: 1.6 + Math.random() * 0.8,
-      size: 4 + Math.random() * 4,
-    });
-  }
-}
-
-function spawnFireworks(run) {
-  const px = (MARINA.x + MARINA.w / 2) * WORLD.tile;
-  const py = (MARINA.y + 1) * WORLD.tile;
-
-  const particles = [];
-  for (let i = 0; i < 22; i += 1) {
-    const angle = (Math.PI * 2 * i) / 22;
-    const speed = 28 + Math.random() * 30;
-    particles.push({
-      x: px,
-      y: py,
-      vx: Math.cos(angle) * speed,
-      vy: Math.sin(angle) * speed,
-      life: 0,
-      ttl: 0.85 + Math.random() * 0.5,
-      color: i % 2 === 0 ? "#ffd77f" : "#9af3ff",
-    });
-  }
-
-  run.effects.push({
-    type: "firework",
-    particles,
-    age: 0,
-    ttl: 1.4,
-  });
-}
-
-function updateRunAnimations(run, dt) {
-  for (let i = run.vehicles.length - 1; i >= 0; i -= 1) {
-    const vehicle = run.vehicles[i];
-    vehicle.progress += dt / vehicle.duration;
-    if (vehicle.progress >= 1) {
-      run.vehicles.splice(i, 1);
-      continue;
-    }
-
-    const t = vehicle.progress;
-    vehicle.x = vehicle.startX + (vehicle.endX - vehicle.startX) * t;
-    vehicle.y = vehicle.startY + (vehicle.endY - vehicle.startY) * t;
-  }
-
-  for (let i = run.effects.length - 1; i >= 0; i -= 1) {
-    const effect = run.effects[i];
-    effect.age += dt;
-
-    if (effect.type === "smoke") {
-      effect.x += effect.vx * dt;
-      effect.y += effect.vy * dt;
-    }
-
-    if (effect.type === "firework") {
-      for (const particle of effect.particles) {
-        particle.life += dt;
-        particle.x += particle.vx * dt;
-        particle.y += particle.vy * dt;
-        particle.vy += 18 * dt;
-      }
-    }
-
-    if (effect.age >= effect.ttl) {
-      run.effects.splice(i, 1);
-    }
-  }
-
-  for (const npc of Object.values(run.npcs)) {
-    if (npc.until < nowMs()) {
-      npc.text = "";
-    }
-  }
-
-  if (run.highlight && run.highlight.until < nowMs()) {
-    run.highlight = null;
-  }
-}
-
-function drawPx(target, x, y, w, h, color) {
-  target.fillStyle = color;
-  target.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
-}
-
-function drawText(target, text, x, y, color = "#f4f0de", size = 12) {
-  target.fillStyle = color;
-  target.font = `bold ${size}px "Lucida Console", "Monaco", monospace`;
-  target.fillText(text, Math.round(x), Math.round(y));
-}
-
-function drawCharacter(target, x, y, palette = 0, scale = 2, frameCol = 1, frameRow = 0, shirtColor = null) {
-  const atlas = CHARACTER_ATLASES[palette % CHARACTER_ATLASES.length];
-  const drawW = 16 * scale;
-  const drawH = 32 * scale;
-  const drawLeft = Math.round(x - drawW / 2);
-  const drawTop = Math.round(y - drawH);
-
-  if (atlas && atlas.complete && atlas.naturalWidth > 0) {
-    const sx = frameCol * 16;
-    const sy = frameRow * 32;
-    target.drawImage(atlas, sx, sy, 16, 32, drawLeft, drawTop, drawW, drawH);
-    if (shirtColor) {
-      target.save();
-      target.globalCompositeOperation = "source-atop";
-      target.fillStyle = shirtColor;
-      target.fillRect(drawLeft + Math.round(3 * scale), drawTop + Math.round(10 * scale), Math.round(10 * scale), Math.round(9 * scale));
-      target.restore();
-    }
-    return;
-  }
-
-  // Fallback block sprite while atlas is loading.
-  drawPx(target, x - 8, y - 20, 16, 8, "#f2c4a8");
-  drawPx(target, x - 9, y - 12, 18, 12, shirtColor || "#5c8ecf");
-  drawPx(target, x - 8, y, 6, 8, "#30495f");
-  drawPx(target, x + 2, y, 6, 8, "#30495f");
-}
-
-function drawDesk(target, x, y, accent = "#9e6b2d") {
-  drawPx(target, x, y, 38, 20, "#5f3d1f");
-  drawPx(target, x + 2, y + 2, 34, 16, accent);
-  drawPx(target, x + 4, y + 5, 12, 8, "#5b6678");
-  drawPx(target, x + 19, y + 8, 8, 5, "#d7dde8");
-}
-
-function drawBookshelf(target, x, y) {
-  drawPx(target, x, y, 30, 24, "#5a3418");
-  drawPx(target, x + 2, y + 3, 26, 2, "#ad7a33");
-  drawPx(target, x + 2, y + 10, 26, 2, "#ad7a33");
-  drawPx(target, x + 2, y + 17, 26, 2, "#ad7a33");
-  drawPx(target, x + 4, y + 4, 3, 5, "#d45d5d");
-  drawPx(target, x + 8, y + 4, 3, 5, "#5d8fd4");
-  drawPx(target, x + 12, y + 4, 3, 5, "#73bf7a");
-}
-
-function drawPlant(target, x, y) {
-  drawPx(target, x + 4, y + 12, 10, 8, "#7b4a2d");
-  drawPx(target, x + 7, y + 4, 2, 8, "#4da35b");
-  drawPx(target, x + 9, y + 2, 3, 10, "#66bb74");
-  drawPx(target, x + 5, y + 5, 2, 8, "#5eb76d");
-}
-
-function buildStaticLayer() {
-  const layer = document.createElement("canvas");
-  layer.width = WORLD.width;
-  layer.height = WORLD.height;
-  const c = layer.getContext("2d");
-  c.imageSmoothingEnabled = false;
-
-  drawPx(c, 0, 0, WORLD.width, WORLD.height, "#12283e");
-  drawPx(c, 0, 0, WORLD.width, 64, "#1f3f5c");
-
-  drawText(c, "Phase Streets Map", 24, 28, "#eef7e3", 15);
-  drawText(c, "Main Road = Active flow | Cul-de-Sac = Blocked / Warn+", 24, 48, "#c5dcf3", 10);
-
-  const margin = 20;
-  const top = 68;
-  const laneGap = 8;
-  const laneWidth = Math.floor((WORLD.width - margin * 2 - laneGap * (PHASE_LANES.length - 1)) / PHASE_LANES.length);
-  const laneHeight = WORLD.height - top - margin;
-  const signHeight = 102;
-
-  PHASE_LANES.forEach((lane, index) => {
-    const laneX = margin + index * (laneWidth + laneGap);
-    const laneY = top;
-    const laneW = laneWidth;
-    const laneH = laneHeight;
-    const sectionGap = 6;
-    const sectionsY = laneY + signHeight + 6;
-    const sectionsH = laneH - signHeight - 12;
-    const sectionH = Math.floor((sectionsH - sectionGap) / 2);
-    const roadX = laneX + 6;
-    const roadW = laneW - 12;
-    const mainY = sectionsY;
-    const culY = mainY + sectionH + sectionGap;
-
-    drawPx(c, laneX, laneY, laneW, laneH, "#20394f");
-    drawPx(c, laneX + 2, laneY + 2, laneW - 4, laneH - 4, "#173145");
-
-    drawPx(c, laneX + 6, laneY + 6, laneW - 12, signHeight, "#112638");
-    drawPx(c, laneX + 8, laneY + 8, laneW - 16, 4, lane.accent);
-    drawText(c, lane.street, laneX + 14, laneY + 30, "#f4f0de", 11);
-    drawText(c, `phase = ${lane.id}`, laneX + 14, laneY + 48, "#d0dff4", 9);
-    drawText(c, "Street Sign", laneX + 14, laneY + 66, "#9ec1de", 8);
-
-    drawPx(c, roadX, mainY, roadW, sectionH, "#26465b");
-    drawPx(c, roadX + 2, mainY + 2, roadW - 4, sectionH - 4, hexToRgba(lane.color, 0.36));
-    drawText(c, "Main Road", roadX + 8, mainY + 18, "#fbf4dc", 10);
-    drawText(c, "(Active pixel agents)", roadX + 8, mainY + 32, "#f8ebc7", 8);
-
-    drawPx(c, roadX, culY, roadW, sectionH, "#2f2f35");
-    drawPx(c, roadX + 2, culY + 2, roadW - 4, sectionH - 4, "rgba(140, 104, 93, 0.35)");
-    drawText(c, "Cul-de-Sac", roadX + 8, culY + 18, "#ffe5d5", 10);
-    drawText(c, "(Stalled pixel agents)", roadX + 8, culY + 32, "#ffd0c1", 8);
-  });
-
-  return layer;
-}
-
-function phaseLaneGeometry(index) {
-  const margin = 20;
-  const top = 68;
-  const laneGap = 8;
-  const laneWidth = Math.floor((WORLD.width - margin * 2 - laneGap * (PHASE_LANES.length - 1)) / PHASE_LANES.length);
-  const laneX = margin + index * (laneWidth + laneGap);
-  const laneY = top;
-  const laneH = WORLD.height - top - margin;
-  const signHeight = 102;
-  const sectionGap = 6;
-  const sectionsY = laneY + signHeight + 6;
-  const sectionsH = laneH - signHeight - 12;
-  const sectionH = Math.floor((sectionsH - sectionGap) / 2);
-  const roadX = laneX + 6;
-  const roadW = laneWidth - 12;
-  const main = { x: roadX, y: sectionsY, w: roadW, h: sectionH };
-  const cul = { x: roadX, y: sectionsY + sectionH + sectionGap, w: roadW, h: sectionH };
-  return { main, cul };
-}
-
-function drawAgentChip(target, run, rect, slotIndex, selectedRunId) {
-  const cellW = 84;
-  const cellH = 44;
-  const maxCols = Math.max(1, Math.floor((rect.w - 16) / cellW));
-  const col = slotIndex % maxCols;
-  const row = Math.floor(slotIndex / maxCols);
-  const x = rect.x + 14 + col * cellW;
-  const y = rect.y + 28 + row * cellH;
-  if (y > rect.y + rect.h - 10) return false;
-
-  const severity = run.needsAttentionSeverity || inferNeedsAttentionSeverity(run);
-  const shirtColor = shirtColorForRun(run);
-  const isSelected = run.runId === selectedRunId;
-  const isBlocked = run.status === "blocked" || Boolean(run.blocked);
-  const statusColor =
-    run.status === "blocked"
-      ? "#b84848"
-      : run.status === "error"
-      ? "#cb5b5b"
-      : run.status === "working"
-        ? "#e1b565"
-        : run.status === "done"
-          ? "#7ed09b"
-          : "#8ab0cc";
-
-  if (isSelected) {
-    drawPx(target, x - 20, y - 32, 70, 40, "rgba(255, 226, 143, 0.28)");
-  }
-
-  drawCharacter(target, x + 12, y + 8, hashString(run.runId), 2, 1, 0, shirtColor);
-  drawPx(target, x + 28, y - 20, 38, 8, statusColor);
-  drawText(target, run.status.toUpperCase().slice(0, 6), x + 30, y - 13, "#182028", 8);
-
-  const label = run.label.replace(/^codex:/, "").slice(0, 11);
-  drawText(target, label, x - 12, y + 18, "#f5f3e4", 8);
-
-  if (isBlocked) {
-    drawPx(target, x + 28, y - 9, 32, 7, "#a44a4a");
-    drawText(target, "BLOCK", x + 30, y - 3, "#ffe7e7", 7);
-  } else if ((ATTENTION_RANK[severity] || 0) >= ATTENTION_RANK.warn) {
-    drawPx(target, x + 28, y - 9, 32, 7, "#b7853e");
-    drawText(target, "WARN", x + 31, y - 3, "#fff4df", 7);
-  }
-
-  return true;
-}
-
-function drawPhaseMap(target, runs, selectedRunId) {
-  const grouped = new Map(PHASE_LANES.map((lane) => [lane.id, { main: [], cul: [] }]));
-
-  for (const run of runs) {
-    const phase = PHASE_LANES.some((lane) => lane.id === run.currentPhase) ? run.currentPhase : "execute";
-    const bucket = grouped.get(phase);
-    if (!bucket) continue;
-    if (isRunInCulDeSac(run)) bucket.cul.push(run);
-    else bucket.main.push(run);
-  }
-
-  for (const lane of PHASE_LANES) {
-    const geom = phaseLaneGeometry(PHASE_LANES.findIndex((item) => item.id === lane.id));
-    const bucket = grouped.get(lane.id) || { main: [], cul: [] };
-
-    bucket.main.sort((a, b) => (b.lastTs || b.createdAt) - (a.lastTs || a.createdAt));
-    bucket.cul.sort((a, b) => (b.lastTs || b.createdAt) - (a.lastTs || a.createdAt));
-
-    let mainPlaced = 0;
-    for (let i = 0; i < bucket.main.length; i += 1) {
-      const placed = drawAgentChip(target, bucket.main[i], geom.main, i, selectedRunId);
-      if (placed) mainPlaced += 1;
-    }
-
-    let culPlaced = 0;
-    for (let i = 0; i < bucket.cul.length; i += 1) {
-      const placed = drawAgentChip(target, bucket.cul[i], geom.cul, i, selectedRunId);
-      if (placed) culPlaced += 1;
-    }
-
-    drawText(target, `${mainPlaced} active`, geom.main.x + geom.main.w - 84, geom.main.y + 18, "#e9f9e8", 8);
-    drawText(target, `${culPlaced} stalled`, geom.cul.x + geom.cul.w - 84, geom.cul.y + 18, "#ffe2d6", 8);
-  }
-}
-
-function drawRun(run, timeSec) {
-  ctx.clearRect(0, 0, WORLD.width, WORLD.height);
-  ctx.drawImage(staticLayer, 0, 0);
-  drawPhaseMap(ctx, getMapRunsForView(), run?.runId || null);
-}
-
-function renderRunList() {
-  runListEl.innerHTML = "";
-
-  for (const runId of state.runOrder) {
-    const run = state.runs.get(runId);
-    if (!run) continue;
-
-    const item = document.createElement("li");
-    item.className = `run-item${state.selectedRunId === runId ? " active" : ""}`;
-    item.dataset.runId = runId;
-
-    const top = document.createElement("div");
-    top.className = "run-top";
-
-    const title = document.createElement("span");
-    title.textContent = `${run.laneName} | ${run.label}`;
-
-    const status = document.createElement("span");
-    status.className = `status-pill ${statusClass(run.status)}`;
-    status.textContent = run.status;
-
-    top.append(title, status);
-
-    const meta = document.createElement("div");
-    meta.className = "muted";
-    meta.textContent = `events=${run.rawEvents.length} files=${run.fileStats.size} errors=${run.errorCount}`;
-
-    item.append(top, meta);
-    runListEl.append(item);
-  }
-}
-
-function getSelectedRealRun() {
-  if (!state.selectedRunId) return null;
-  return state.runs.get(state.selectedRunId) || null;
-}
-
-function getActiveRunForView() {
-  if (state.replay.active && state.replay.previewRun) {
-    return state.replay.previewRun;
-  }
-  return getSelectedRealRun();
-}
-
-function getMapRunsForView() {
+function getRunsForView() {
   const runs = [];
   const replaySourceId = state.replay.active ? state.replay.sourceRunId : null;
-
   for (const runId of state.runOrder) {
     if (runId === replaySourceId && state.replay.previewRun) {
       runs.push(state.replay.previewRun);
@@ -1503,93 +637,554 @@ function getMapRunsForView() {
     const run = state.runs.get(runId);
     if (run) runs.push(run);
   }
-
-  if (runs.length === 0 && state.replay.previewRun) {
-    runs.push(state.replay.previewRun);
-  }
-
+  if (runs.length === 0 && state.replay.previewRun) runs.push(state.replay.previewRun);
   return runs;
 }
 
-function selectedTimelineRecord(run) {
-  if (!run) return null;
-  const selectedId = state.timelineSelectionByRun.get(run.runId);
-  if (!selectedId) return null;
-  return run.timeline.find((record) => record.id === selectedId) || null;
+function getSelectedRealRun() {
+  if (!state.selectedRunId) return null;
+  return state.runs.get(state.selectedRunId) || null;
 }
 
-function renderTimeline() {
-  timelineListEl.innerHTML = "";
+function getActiveRunForView() {
+  if (state.replay.active && state.replay.previewRun && state.replay.sourceRunId === state.selectedRunId) {
+    return state.replay.previewRun;
+  }
+  return getSelectedRealRun();
+}
 
-  const run = getActiveRunForView();
+function severityClass(severity) {
+  if (severity === "critical") return "sev-critical";
+  if (severity === "warn") return "sev-warn";
+  if (severity === "info") return "sev-info";
+  return "";
+}
+
+function blockerLabel(blocker) {
+  if (blocker === "verify_loop") return "verify_loop";
+  if (blocker === "tool_fail_loop") return "tool_fail_loop";
+  if (blocker === "dependency_wait") return "dependency_wait";
+  if (blocker === "no_progress") return "no_progress";
+  return "none";
+}
+
+function queueSort(a, b) {
+  const sev = (ATTENTION_RANK[b.needsAttentionSeverity] || 0) - (ATTENTION_RANK[a.needsAttentionSeverity] || 0);
+  if (sev !== 0) return sev;
+  const impact = phaseImpact(b) - phaseImpact(a);
+  if (impact !== 0) return impact;
+  const aAge = a.blockedSinceTs || a.lastActionTs || 0;
+  const bAge = b.blockedSinceTs || b.lastActionTs || 0;
+  return aAge - bAge;
+}
+
+function selectRun(runId, options = {}) {
+  const run = state.runs.get(runId);
   if (!run) return;
 
-  const entries = run.timeline.slice(-200).reverse();
-  const selectedId = state.timelineSelectionByRun.get(run.runId);
+  state.selectedRunId = runId;
+  state.ui.selectedAgentRunId = runId;
+  state.ui.focusedPhase = run.requiresHumanGate ? "approval" : run.currentPhase;
+  state.ui.drawerOpen = true;
+  if (options.drawerMode) state.ui.drawerMode = options.drawerMode;
 
-  for (const record of entries) {
+  if (state.replay.active && state.replay.sourceRunId !== runId) stopReplay();
+
+  scrollQueueToRun(runId);
+  renderUi();
+  scrollMapToPhase(state.ui.focusedPhase);
+}
+
+function scrollMapToPhase(phase) {
+  if (!mapViewportEl) return;
+  if (phase === "approval") {
+    mapViewportEl.scrollTo({ top: mapViewportEl.scrollHeight, behavior: "smooth" });
+    return;
+  }
+  const index = PHASE_COLUMNS.findIndex((item) => item.id === phase);
+  if (index < 0) return;
+  const colW = mapViewportEl.clientWidth / PHASE_COLUMNS.length;
+  const left = Math.max(0, index * colW - colW / 3);
+  mapViewportEl.scrollTo({ left, behavior: "smooth" });
+}
+
+function scrollQueueToRun(runId) {
+  const card = attentionQueueEl.querySelector(`[data-run-id="${CSS.escape(runId)}"]`);
+  if (card) card.scrollIntoView({ block: "nearest" });
+}
+
+function approveRun(runId) {
+  const run = state.runs.get(runId);
+  if (!run) return;
+  run.requiresHumanGate = false;
+  run.blocked = false;
+  run.blockedReason = "";
+  run.approvalSummary = "";
+  run.status = "working";
+  run.currentPhase = run.previousPhaseBeforeApproval || run.currentPhase || "execute";
+  run.previousPhaseBeforeApproval = null;
+  run.blockerClass = "none";
+  run.lastTs = nowMs();
+  updateRunDerivedFields(run);
+  queuePersistence();
+  renderUi();
+}
+
+function restartRun(runId) {
+  const run = state.runs.get(runId);
+  if (!run) return;
+  run.blocked = false;
+  run.blockedReason = "";
+  run.failureStreak = 0;
+  run.status = "working";
+  run.blockerClass = "none";
+  run.lastTs = nowMs();
+  updateRunDerivedFields(run);
+  queuePersistence();
+  renderUi();
+}
+
+function provideInput(runId, text) {
+  const run = state.runs.get(runId);
+  if (!run) return;
+  const message = String(text || "").trim();
+  if (!message) return;
+  ingestRawEvent(
+    {
+      type: "operator.input",
+      run_id: runId.replace(/^explicit:/, ""),
+      ts: nowMs(),
+      message,
+      requires_approval: false,
+    },
+    { forceRunId: runId }
+  );
+}
+
+function jumpToFirstAnomaly(runId) {
+  const run = state.runs.get(runId);
+  if (!run || !run.firstAnomalyTs) return;
+  const record = run.timeline.find((item) => item.ts >= run.firstAnomalyTs);
+  if (record) {
+    run.highlight = { until: nowMs() + 2500, phase: run.currentPhase };
+  }
+  selectRun(runId, { drawerMode: "failure" });
+}
+
+function actionRecommendations(run) {
+  if (!run) return ["Select an agent to inspect."];
+  if (run.requiresHumanGate) {
+    return [
+      "Review approval summary and risk badge.",
+      "Approve only if the action is safe for current environment.",
+      "If unclear, provide targeted operator input before approving.",
+    ];
+  }
+  if (run.blockerClass === "verify_loop") {
+    return [
+      "Restart from last known good checkpoint.",
+      "Narrow scope to one failing test.",
+      "Capture exact failing assertion and rerun once.",
+    ];
+  }
+  if (run.blockerClass === "tool_fail_loop") {
+    return ["Stop repeating tool command.", "Inspect the first failure payload.", "Provide input with a constrained next step."];
+  }
+  if (run.blockerClass === "dependency_wait") {
+    return ["Check upstream dependency health.", "Defer retries with backoff.", "Move agent to alternate non-blocked task if possible."];
+  }
+  if (run.blockerClass === "no_progress") {
+    return ["Restart run from checkpoint.", "Request concrete file change output.", "Escalate if no progress after one retry."];
+  }
+  return ["Monitor current flow.", "Verify one concrete success signal.", "Keep intervention minimal while active."];
+}
+
+function renderGlobalHud() {
+  const mode = state.replay.active ? "Replay" : "Live";
+  const run = getActiveRunForView();
+  hudModeEl.textContent = `Mode: ${mode}`;
+  if (!run) {
+    hudLaneEl.textContent = "Lorong: Waiting";
+    hudRuntimeEl.textContent = "Runtime: 0s";
+    hudBlockedSinceEl.textContent = "Blocked since: n/a";
+    hudFirstAnomalyEl.textContent = "First anomaly: n/a";
+    runBadgeEl.textContent = `${APP_NAME} | no run selected`;
+    return;
+  }
+
+  hudLaneEl.textContent = `Lorong: ${run.laneName}`;
+  hudRuntimeEl.textContent = `Runtime: ${formatDuration(run.runtimeMs)}`;
+  hudBlockedSinceEl.textContent = `Blocked since: ${run.blockedSinceTs ? ageText(run.blockedSinceTs) : "n/a"}`;
+  hudFirstAnomalyEl.textContent = `First anomaly: ${run.firstAnomalyTs ? new Date(run.firstAnomalyTs).toLocaleTimeString() : "n/a"}`;
+  runBadgeEl.textContent = `${APP_NAME} | ${run.laneName} | ${run.label}`;
+}
+
+function phaseLaneGeometry(index) {
+  const margin = 18;
+  const top = 58;
+  const bottom = 24;
+  const gap = 8;
+  const laneW = Math.floor((WORLD.width - margin * 2 - gap * (PHASE_COLUMNS.length - 1)) / PHASE_COLUMNS.length);
+  const laneH = WORLD.height - top - bottom;
+  const x = margin + index * (laneW + gap);
+  const y = top;
+  const signH = 82;
+  const sectionGap = 8;
+  const sectionY = y + signH + 8;
+  const sectionH = laneH - signH - 16;
+  const culH = Math.floor(sectionH * 0.38);
+  const mainH = sectionH - culH - sectionGap;
+  return {
+    lane: { x, y, w: laneW, h: laneH },
+    sign: { x: x + 6, y: y + 6, w: laneW - 12, h: signH },
+    main: { x: x + 8, y: sectionY, w: laneW - 16, h: mainH },
+    cul: { x: x + 8, y: sectionY + mainH + sectionGap, w: laneW - 16, h: culH },
+  };
+}
+
+function drawRoundedRect(target, x, y, w, h, radius, fill, stroke = null) {
+  target.beginPath();
+  target.moveTo(x + radius, y);
+  target.lineTo(x + w - radius, y);
+  target.quadraticCurveTo(x + w, y, x + w, y + radius);
+  target.lineTo(x + w, y + h - radius);
+  target.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  target.lineTo(x + radius, y + h);
+  target.quadraticCurveTo(x, y + h, x, y + h - radius);
+  target.lineTo(x, y + radius);
+  target.quadraticCurveTo(x, y, x + radius, y);
+  target.closePath();
+  target.fillStyle = fill;
+  target.fill();
+  if (stroke) {
+    target.strokeStyle = stroke;
+    target.stroke();
+  }
+}
+
+function drawText(target, text, x, y, color = "#f4f0de", size = 12) {
+  target.fillStyle = color;
+  target.font = `bold ${size}px "Lucida Console", "Monaco", monospace`;
+  target.fillText(text, Math.round(x), Math.round(y));
+}
+
+function tileDims(densityMode) {
+  const base = state.ui.tileSize === "s" ? { w: 64, h: 40 } : state.ui.tileSize === "l" ? { w: 92, h: 56 } : { w: 78, h: 48 };
+  if (!densityMode) return base;
+  return { w: Math.max(56, base.w - 16), h: Math.max(34, base.h - 12) };
+}
+
+function stableSortRuns(runs) {
+  return [...runs].sort((a, b) => {
+    const order = (STATUS_ORDER[a.operationalStatus] || 9) - (STATUS_ORDER[b.operationalStatus] || 9);
+    if (order !== 0) return order;
+    const phase = String(a.currentPhase).localeCompare(String(b.currentPhase));
+    if (phase !== 0) return phase;
+    const recency = (b.lastActionTs || 0) - (a.lastActionTs || 0);
+    if (recency !== 0) return recency;
+    return String(a.runId).localeCompare(String(b.runId));
+  });
+}
+
+function packTiles(rect, runs, densityMode) {
+  const dims = tileDims(densityMode);
+  const spacing = densityMode ? 4 : 6;
+  const cols = Math.max(1, Math.floor((rect.w - 10) / (dims.w + spacing)));
+  const placed = [];
+
+  const sorted = stableSortRuns(runs);
+  for (let i = 0; i < sorted.length; i += 1) {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = rect.x + 6 + col * (dims.w + spacing);
+    const y = rect.y + 22 + row * (dims.h + spacing);
+    if (y + dims.h > rect.y + rect.h - 4) break;
+    placed.push({ run: sorted[i], x, y, w: dims.w, h: dims.h, densityMode });
+  }
+
+  return placed;
+}
+
+function drawRunTile(target, tile, phaseId, inCul = false) {
+  const { run, x, y, w, h, densityMode } = tile;
+  const token = STATUS_TOKENS[run.operationalStatus] || STATUS_TOKENS.waiting;
+  const selected = run.runId === state.ui.selectedAgentRunId;
+  const border = selected ? "#f7e085" : token.color;
+  drawRoundedRect(target, x, y, w, h, 5, "rgba(8, 20, 32, 0.92)", border);
+
+  drawText(target, `${token.icon} ${densityMode ? run.label.replace(/^codex:/, "").slice(0, 8) : run.label.replace(/^codex:/, "").slice(0, 12)}`, x + 6, y + 14, "#e9f4ff", densityMode ? 8 : 9);
+
+  if (!densityMode) {
+    drawText(target, run.operationalStatus, x + 6, y + 28, "#bdd5e7", 8);
+  }
+
+  if (inCul && run.blockerClass !== "none") {
+    drawText(target, `${BLOCKER_ICON[run.blockerClass] || ""} ${blockerLabel(run.blockerClass)}`, x + 6, y + h - 6, "#ffd6d0", 7);
+    drawText(target, phaseId, x + w - 40, y + h - 6, "#b8c9da", 7);
+  }
+}
+
+function drawMap() {
+  ctx.clearRect(0, 0, WORLD.width, WORLD.height);
+  drawRoundedRect(ctx, 0, 0, WORLD.width, WORLD.height, 0, "#0d2235");
+  drawText(ctx, "City Control Room", 18, 24, "#e8f5ff", 15);
+  drawText(ctx, "Main Road = Active Flow | Cul-de-Sac = System Stall", 18, 42, "#c0d6e8", 10);
+
+  const runs = getRunsForView();
+  state.ui.tileRects = [];
+
+  let densityTriggered = false;
+
+  for (const [idx, lane] of PHASE_COLUMNS.entries()) {
+    const g = phaseLaneGeometry(idx);
+    const laneRuns = runs.filter((run) => !run.requiresHumanGate && run.currentPhase === lane.id);
+    const culRuns = laneRuns.filter((run) => CULDESAC_BLOCKERS.has(run.blockerClass));
+    const mainRuns = laneRuns.filter((run) => !CULDESAC_BLOCKERS.has(run.blockerClass));
+
+    const activeCount = laneRuns.filter((run) => run.operationalStatus === "active").length;
+    const waitingCount = laneRuns.filter((run) => run.operationalStatus === "waiting").length;
+    const stalledCount = culRuns.length;
+    const oldestStallTs = culRuns
+      .map((run) => run.blockedSinceTs || run.lastActionTs || 0)
+      .filter(Boolean)
+      .sort((a, b) => a - b)[0];
+
+    drawRoundedRect(ctx, g.lane.x, g.lane.y, g.lane.w, g.lane.h, 6, "#17324a", "rgba(161, 199, 224, 0.2)");
+    drawRoundedRect(ctx, g.sign.x, g.sign.y, g.sign.w, g.sign.h, 6, "#0f2539", "rgba(161, 199, 224, 0.3)");
+
+    const warning = stalledCount > 0;
+    const signName = `${lane.emoji} ${lane.street}${warning ? " ⚠" : ""}`;
+    drawText(ctx, signName, g.sign.x + 8, g.sign.y + 20, "#f4f7de", 11);
+    drawText(ctx, `🚗 ${activeCount} Active | ⏳ ${waitingCount} Waiting | 🛑 ${stalledCount} Stalled`, g.sign.x + 8, g.sign.y + 40, "#d4e5f3", 9);
+    drawText(ctx, `Oldest stall: ${oldestStallTs ? ageText(oldestStallTs) : "n/a"}`, g.sign.x + 8, g.sign.y + 58, "#bfd3e6", 8);
+
+    if (warning) {
+      ctx.fillStyle = "rgba(212, 75, 75, 0.85)";
+      ctx.fillRect(g.sign.x + 4, g.sign.y + g.sign.h - 5, g.sign.w - 8, 3);
+    }
+
+    drawRoundedRect(ctx, g.main.x, g.main.y, g.main.w, g.main.h, 5, "rgba(43, 81, 104, 0.45)", "rgba(146, 198, 228, 0.26)");
+    drawText(ctx, "Main Road", g.main.x + 8, g.main.y + 14, "#e8f4df", 9);
+
+    drawRoundedRect(ctx, g.cul.x, g.cul.y, g.cul.w, g.cul.h, 8, "rgba(56, 34, 38, 0.75)", "rgba(209, 108, 108, 0.5)");
+    drawText(ctx, `Cul-de-Sac (${stalledCount} Stalled)`, g.cul.x + 8, g.cul.y + 14, "#ffd5cb", 9);
+
+    const laneDense = laneRuns.length > 12;
+    if (laneDense) densityTriggered = true;
+
+    const mainTiles = packTiles(g.main, mainRuns, laneDense);
+    const culTiles = packTiles(g.cul, culRuns, laneDense);
+
+    for (const tile of mainTiles) {
+      drawRunTile(ctx, tile, lane.id, false);
+      state.ui.tileRects.push({ ...tile, phase: lane.id });
+    }
+
+    for (const tile of culTiles) {
+      drawRunTile(ctx, tile, lane.id, true);
+      state.ui.tileRects.push({ ...tile, phase: lane.id });
+    }
+  }
+
+  state.ui.mapDensityMode = densityTriggered;
+
+  renderMapOverlay();
+}
+
+function renderMapOverlay() {
+  mapOverlayEl.innerHTML = "";
+  const scaleX = canvas.clientWidth / WORLD.width;
+  const scaleY = canvas.clientHeight / WORLD.height;
+
+  state.ui.tileRects.forEach((tile, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "map-tile-hit";
+    button.dataset.runId = tile.run.runId;
+    button.dataset.phase = tile.phase;
+    button.style.left = `${Math.round(tile.x * scaleX)}px`;
+    button.style.top = `${Math.round(tile.y * scaleY)}px`;
+    button.style.width = `${Math.max(4, Math.round(tile.w * scaleX))}px`;
+    button.style.height = `${Math.max(4, Math.round(tile.h * scaleY))}px`;
+    button.title = `${tile.run.label} | ${tile.run.operationalStatus}`;
+    button.setAttribute("aria-label", `${tile.run.label}, ${tile.run.operationalStatus}, ${phaseStreetLabel(tile.phase)}`);
+    button.tabIndex = index === state.ui.keyboardFocusIndex ? 0 : -1;
+
+    button.addEventListener("click", () => {
+      selectRun(tile.run.runId, { drawerMode: "overview" });
+    });
+
+    button.addEventListener("keydown", (event) => {
+      if (!["ArrowRight", "ArrowLeft", "ArrowUp", "ArrowDown"].includes(event.key)) return;
+      event.preventDefault();
+      const total = state.ui.tileRects.length;
+      if (total === 0) return;
+      if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+        state.ui.keyboardFocusIndex = (index + 1) % total;
+      } else {
+        state.ui.keyboardFocusIndex = (index - 1 + total) % total;
+      }
+      renderMapOverlay();
+      const next = mapOverlayEl.querySelectorAll(".map-tile-hit")[state.ui.keyboardFocusIndex];
+      next?.focus();
+    });
+
+    mapOverlayEl.append(button);
+  });
+}
+
+function filteredRunsForList(runs) {
+  const search = state.ui.queueSearch.trim().toLowerCase();
+  const { phase, status, agentType } = state.ui.queueFilters;
+  return runs.filter((run) => {
+    if (search && !`${run.label} ${run.agentId}`.toLowerCase().includes(search)) return false;
+    if (phase !== "all") {
+      if (phase === "approval") {
+        if (!run.requiresHumanGate) return false;
+      } else if (run.currentPhase !== phase) {
+        return false;
+      }
+    }
+    if (status !== "all" && run.operationalStatus !== status) return false;
+    if (agentType !== "all" && inferAgentType(run) !== agentType) return false;
+    return true;
+  });
+}
+
+function renderNeedsAttentionQueue(runs) {
+  const queueRuns = runs
+    .filter((run) => run.requiresHumanGate || (ATTENTION_RANK[run.needsAttentionSeverity] || 0) >= ATTENTION_RANK.info)
+    .sort(queueSort);
+
+  attentionQueueEl.innerHTML = "";
+  for (const run of queueRuns) {
+    const token = STATUS_TOKENS[run.operationalStatus] || STATUS_TOKENS.waiting;
     const li = document.createElement("li");
-    li.className = `timeline-item${record.id === selectedId ? " active" : ""}`;
-    li.dataset.timelineId = String(record.id);
+    li.className = `attn-card ${severityClass(run.needsAttentionSeverity)}${run.runId === state.ui.selectedAgentRunId ? " selected" : ""}`;
     li.dataset.runId = run.runId;
 
-    const derivedKinds = record.derived.map((item) => item.kind).join(", ");
-    li.innerHTML = `<div>${formatTime(record.ts)} | ${record.rawType}</div><div>${record.summary}</div><div class="derived">${derivedKinds}</div>`;
+    const iconType = inferAgentType(run) === "simulated" ? "🧪" : inferAgentType(run) === "manual" ? "🛠" : "🤖";
+    const phaseLabel = run.requiresHumanGate ? "approval" : run.currentPhase;
 
-    timelineListEl.append(li);
+    li.innerHTML = `
+      <div class="attn-head">
+        <span>${iconType} ${run.label.replace(/^codex:/, "")}</span>
+        <span class="state-badge ${token.className}">${token.icon} ${run.operationalStatus}</span>
+      </div>
+      <div class="attn-sub">Phase: ${phaseLabel}</div>
+      <div class="attn-sub">${run.blockedReason || run.approvalSummary || "Attention required"}</div>
+      <div class="attn-sub">Blocked since: ${run.blockedSinceTs ? ageText(run.blockedSinceTs) : "n/a"}</div>
+      <div class="attn-actions">
+        <button type="button" data-action="approve" data-run-id="${run.runId}">Approve</button>
+        <button type="button" data-action="restart" data-run-id="${run.runId}">Restart</button>
+        <button type="button" data-action="failure" data-run-id="${run.runId}">View failure</button>
+        <button type="button" data-action="input" data-run-id="${run.runId}">Provide input</button>
+        <button type="button" data-action="open" data-run-id="${run.runId}">Open agent</button>
+      </div>
+    `;
+
+    attentionQueueEl.append(li);
+  }
+
+  if (queueRuns.length === 0) {
+    const li = document.createElement("li");
+    li.className = "attn-card";
+    li.textContent = "No agents currently need attention.";
+    attentionQueueEl.append(li);
   }
 }
 
-function renderScorecard() {
+function renderAgentTable(runs) {
+  const filtered = filteredRunsForList(runs).sort((a, b) => (b.lastActionTs || 0) - (a.lastActionTs || 0));
+  agentTableBodyEl.innerHTML = "";
+  for (const run of filtered) {
+    const tr = document.createElement("tr");
+    tr.className = `agent-row${run.runId === state.ui.selectedAgentRunId ? " selected" : ""}`;
+    tr.dataset.runId = run.runId;
+    tr.tabIndex = 0;
+
+    tr.innerHTML = `
+      <td>${run.label.replace(/^codex:/, "")}</td>
+      <td>${run.requiresHumanGate ? "approval" : run.currentPhase}</td>
+      <td><span class="state-badge ${(STATUS_TOKENS[run.operationalStatus] || STATUS_TOKENS.waiting).className}">${run.operationalStatus}</span></td>
+      <td>${formatDuration(run.runtimeMs)}</td>
+      <td>${run.lastActionTs ? ageText(run.lastActionTs) : "n/a"}</td>
+    `;
+
+    tr.addEventListener("click", () => selectRun(run.runId));
+    tr.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        selectRun(run.runId);
+      }
+    });
+
+    agentTableBodyEl.append(tr);
+  }
+}
+
+function renderApprovalStreet(runs) {
+  const approvals = runs.filter((run) => run.requiresHumanGate).sort(queueSort);
+  approvalCountEl.textContent = `${approvals.length} pending`;
+  approvalListEl.innerHTML = "";
+
+  for (const run of approvals) {
+    const div = document.createElement("article");
+    div.className = "approval-tile";
+    div.dataset.runId = run.runId;
+    div.innerHTML = `
+      <strong>🧍 ${run.label.replace(/^codex:/, "")}</strong>
+      <span>${run.approvalSummary || "Awaiting approval"}</span>
+      <span>Risk: ${run.approvalRisk.toUpperCase()}</span>
+      <button type="button" data-action="approve" data-run-id="${run.runId}">Approve</button>
+    `;
+    div.addEventListener("click", () => selectRun(run.runId));
+    approvalListEl.append(div);
+  }
+
+  if (approvals.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "muted";
+    empty.textContent = "No pending approvals.";
+    approvalListEl.append(empty);
+  }
+}
+
+function renderDrawer() {
   const run = getActiveRunForView();
   if (!run) {
-    metricDurationEl.textContent = "0s";
-    metricToolCountEl.textContent = "0";
-    metricFileCountEl.textContent = "0";
-    metricErrorCountEl.textContent = "0";
-    metricSuccessCountEl.textContent = "0";
-    metricStuckEl.textContent = "0.00";
-    interventionTextEl.textContent = "No intervention needed yet.";
+    drawerTitleEl.textContent = "No agent selected";
+    drawerTaskEl.textContent = "Select an agent tile, queue card, or table row.";
+    drawerLastSuccessEl.textContent = "Last success: n/a";
+    drawerBlockerEl.textContent = "Blocker: none";
+    drawerRecommendationsEl.innerHTML = "";
+    drawerEventsEl.innerHTML = "";
     return;
   }
 
-  const duration = (run.lastTs || run.createdAt) - (run.firstTs || run.createdAt);
-  metricDurationEl.textContent = formatDuration(duration);
-  metricToolCountEl.textContent = String(run.toolCount);
-  metricFileCountEl.textContent = String(run.fileCount);
-  metricErrorCountEl.textContent = String(run.errorCount);
-  metricSuccessCountEl.textContent = String(run.successCount);
-  metricStuckEl.textContent = run.stuckScore.toFixed(2);
-  interventionTextEl.textContent = run.intervention;
+  drawerTitleEl.textContent = run.label;
+  drawerTaskEl.textContent = run.timeline.at(-1)?.summary || "No event captured yet.";
+  drawerLastSuccessEl.textContent = `Last success: ${run.lastSuccessTs ? ageText(run.lastSuccessTs) : "n/a"}`;
+  drawerBlockerEl.textContent = `Blocker: ${blockerLabel(run.blockerClass)}`;
 
-  if (run.stuckScore > 0.7) {
-    stuckBannerEl.hidden = false;
-    stuckBannerEl.textContent = `Stuck score ${run.stuckScore.toFixed(2)} | ${run.stuckReason}`;
-  } else {
-    stuckBannerEl.hidden = true;
-  }
-}
-
-function renderInspector() {
-  const run = getActiveRunForView();
-  const record = selectedTimelineRecord(run);
-
-  if (!run || !record) {
-    inspectorSummaryEl.textContent = "Select a timeline item to inspect.";
-    inspectorRawEl.textContent = "";
-    return;
+  drawerRecommendationsEl.innerHTML = "";
+  for (const rec of actionRecommendations(run)) {
+    const li = document.createElement("li");
+    li.textContent = rec;
+    drawerRecommendationsEl.append(li);
   }
 
-  const derivedLine = record.derived.map((item) => item.kind).join(", ");
-  inspectorSummaryEl.textContent = `${record.summary} | area: ${districtLabel(record.district)} | derived: ${derivedLine}`;
-  inspectorRawEl.textContent = JSON.stringify(record.rawEvent, null, 2);
+  const events = run.timeline.slice(-20).reverse();
+  drawerEventsEl.innerHTML = "";
+  for (const event of events) {
+    const li = document.createElement("li");
+    li.textContent = `${new Date(event.ts).toLocaleTimeString()} | ${event.summary}`;
+    drawerEventsEl.append(li);
+  }
 }
 
 function renderReplayUi() {
-  const sourceRun = state.replay.active
-    ? state.runs.get(state.replay.sourceRunId)
-    : getSelectedRealRun();
-
+  const sourceRun = state.replay.active ? state.runs.get(state.replay.sourceRunId) : getSelectedRealRun();
   const max = sourceRun ? sourceRun.rawEvents.length : 0;
   replaySliderEl.max = String(max);
 
@@ -1608,217 +1203,17 @@ function renderWsStatus() {
   wsStatusEl.textContent = `WS: ${state.ws.status}`;
 }
 
-function renderRunBadge() {
-  const run = getActiveRunForView();
-  if (!run) {
-    runBadgeEl.textContent = `${APP_NAME} | no run selected`;
-    return;
-  }
-
-  if (state.replay.active && state.replay.sourceRunId) {
-    runBadgeEl.textContent = `${APP_NAME} | ${run.laneName} | ${run.label} | Replay mode`;
-    return;
-  }
-
-  runBadgeEl.textContent = `${APP_NAME} | ${run.laneName} | ${run.label} | Live mode`;
-}
-
-function buildStoryForRun(run) {
-  const latest = run?.timeline?.[run.timeline.length - 1] || null;
-  const latestKinds = latest ? latest.derived.map((item) => item.kind) : [];
-
-  if (!run) {
-    return {
-      stateLabel: "Agent state: waiting",
-      stateClass: "state-idle",
-      title: "What is happening now",
-      body: "Waiting for events.",
-      facts: "No recent activity yet.",
-      reasons: [
-        "WebSocket stream has not delivered events yet.",
-        "Start relay or use Simulator Pack for a live demo.",
-      ],
-      nextAction: "Next: connect relay and send the first codex event.",
-    };
-  }
-
-  const durationMs = (run.lastTs || run.createdAt) - (run.firstTs || run.createdAt);
-  const latestSummary = latest ? latest.summary : "No event captured yet";
-  const latestType = latest ? latest.rawType : "none";
-  const latestDistrict = latest ? latest.district : "CBD";
-  const latestDistrictLabel = districtLabel(latestDistrict);
-  const latestPhase = run.currentPhase || "execute";
-  const latestStreet = phaseStreetLabel(latestPhase);
-  const latestFile = latest?.filePath || "none";
-
-  const sharedReasons = [
-    `Latest event: ${latestType} (${latestSummary})`,
-    `Current phase: ${latestPhase} on ${latestStreet}`,
-    `Current area: ${latestDistrictLabel} (${districtMeaning(latestDistrict)})`,
-    `Current file: ${latestFile}`,
-    `Last file change: ${ageText(run.lastFileChangeAt)}`,
-    `Last tool activity: ${ageText(run.lastToolAt)}`,
-  ];
-
-  if (run.stuckScore > 0.7 || run.failureStreak >= 2) {
-    return {
-      stateLabel: "Agent state: scolded",
-      stateClass: "state-scolded",
-      title: "Agent is scolded and likely stuck",
-      body: "Errors are repeating and progress is stalling. The run needs a narrower next step.",
-      facts: `stuck=${run.stuckScore.toFixed(2)} | errors=${run.errorCount} | failures in a row=${run.failureStreak} | ${run.intervention}`,
-      reasons: [
-        `Error signatures are repeating in this run (${run.errorCount} total errors).`,
-        `Failure streak is ${run.failureStreak} without a recovery success.`,
-        ...sharedReasons,
-      ],
-      nextAction: `Next: ${run.intervention}. Focus on ${latestDistrictLabel} and the latest failing file.`,
-    };
-  }
-
-  if (run.status === "working" || latestKinds.includes("tool.activity")) {
-    const focus =
-      run.toolCount > run.fileCount
-        ? "Agent is exploring and running tools."
-        : "Agent is actively changing files.";
-    return {
-      stateLabel: "Agent state: doing task",
-      stateClass: "state-working",
-      title: "Agent is working on the task",
-      body: focus,
-      facts: `duration=${formatDuration(durationMs)} | tools=${run.toolCount} | file changes=${run.fileCount} | errors=${run.errorCount}`,
-      reasons: [
-        "Recent events include active tool usage and movement in the map.",
-        `${run.fileCount} file change events detected, showing concrete progress.`,
-        ...sharedReasons,
-      ],
-      nextAction:
-        run.toolCount > run.fileCount
-          ? `Next: ask agent to make one concrete change in ${latestDistrictLabel} before more exploration.`
-          : `Next: keep current flow and verify with one focused test in ${latestDistrictLabel}.`,
-    };
-  }
-
-  if (run.status === "done" || run.successCount > 0) {
-    return {
-      stateLabel: "Agent state: done",
-      stateClass: "state-done",
-      title: "Task run has completed",
-      body: "The current run reached a completed state.",
-      facts: `duration=${formatDuration(durationMs)} | success=${run.successCount} | errors=${run.errorCount} | files=${run.fileCount}`,
-      reasons: [
-        "Completion or success events were observed in the recent timeline.",
-        `Run finished with ${run.successCount} success signals and ${run.errorCount} errors.`,
-        ...sharedReasons,
-      ],
-      nextAction: `Next: export replay JSONL or start a new run. Last active area was ${latestDistrictLabel}.`,
-    };
-  }
-
-  return {
-    stateLabel: "Agent state: idle",
-    stateClass: "state-idle",
-    title: "Agent is waiting or paused",
-    body: "No strong activity signal right now. You can start a new run or use simulator mode.",
-    facts: `duration=${formatDuration(durationMs)} | events=${run.rawEvents.length} | tools=${run.toolCount} | files=${run.fileCount}`,
-    reasons: [
-      "No recent tool burst or file change pattern was detected.",
-      "Run may be awaiting a new prompt or user instruction.",
-      ...sharedReasons,
-    ],
-    nextAction: `Next: send a new prompt or trigger New Run. The last known area was ${latestDistrictLabel}.`,
-  };
-}
-
-function renderStoryPanel() {
-  const run = getActiveRunForView();
-  const story = buildStoryForRun(run);
-
-  storyStateEl.className = `story-state ${story.stateClass}`;
-  storyStateEl.textContent = story.stateLabel;
-  storyTitleEl.textContent = story.title;
-  storyBodyEl.textContent = story.body;
-  storyFactsEl.textContent = story.facts;
-  storyReasonsEl.innerHTML = "";
-  for (const reason of story.reasons || []) {
-    const li = document.createElement("li");
-    li.textContent = reason;
-    storyReasonsEl.append(li);
-  }
-  storyNextEl.textContent = story.nextAction || "Next: waiting for next event.";
-}
-
-function renderCaptionBar() {
-  const run = getActiveRunForView();
-  const mode = state.replay.active ? "Replay" : "Live";
-
-  if (!run) {
-    captionModeEl.textContent = `Mode: ${mode}`;
-    captionLaneEl.textContent = "Lorong: Waiting";
-    captionAreaEl.textContent = "Street: Waiting";
-    captionStateEl.textContent = "State: Waiting";
-    captionStepEl.textContent = "Current step: Waiting for first event.";
-    captionFileEl.textContent = "Current file: none";
-    return;
-  }
-
-  const latest = run.timeline[run.timeline.length - 1] || null;
-  const phase = run.currentPhase || "execute";
-  const street = phaseStreetLabel(phase);
-  const latestFile = latest?.filePath || "none";
-  const latestSummary = latest?.summary || "No event captured yet";
-
-  captionModeEl.textContent = `Mode: ${mode}`;
-  captionLaneEl.textContent = `Lorong: ${run.laneName}`;
-  captionAreaEl.textContent = `Street: ${street} (phase=${phase})`;
-  captionStateEl.textContent = `State: ${prettyState(run.status, run)}`;
-  captionStepEl.textContent = `Current step: ${latestSummary}`;
-  captionFileEl.textContent = `Current file: ${latestFile}`;
-}
-
 function renderUi() {
+  updateAllDerived();
+  const runs = getRunsForView();
   renderWsStatus();
-  renderRunList();
-  renderCaptionBar();
-  renderStoryPanel();
-  renderTimeline();
-  renderScorecard();
-  renderInspector();
+  renderGlobalHud();
+  drawMap();
+  renderNeedsAttentionQueue(runs);
+  renderAgentTable(runs);
+  renderApprovalStreet(runs);
+  renderDrawer();
   renderReplayUi();
-  renderRunBadge();
-}
-
-function handleTimelineClick(event) {
-  const li = event.target.closest(".timeline-item");
-  if (!li) return;
-
-  const timelineId = Number(li.dataset.timelineId);
-  const runId = li.dataset.runId;
-  if (!Number.isFinite(timelineId) || !runId) return;
-
-  const run = getActiveRunForView();
-  if (!run || run.runId !== runId) return;
-
-  state.timelineSelectionByRun.set(run.runId, timelineId);
-
-  const record = run.timeline.find((item) => item.id === timelineId);
-  if (record) {
-    run.highlight = {
-      district: record.district,
-      filePath: record.filePath,
-      until: nowMs() + 2800,
-    };
-  }
-
-  renderUi();
-}
-
-function handleRunListClick(event) {
-  const li = event.target.closest(".run-item");
-  if (!li) return;
-  const runId = li.dataset.runId;
-  if (!runId) return;
-  selectRun(runId);
 }
 
 function connectWebSocket() {
@@ -1856,19 +1251,10 @@ function connectWebSocket() {
   socket.addEventListener("message", (message) => {
     const payload = typeof message.data === "string" ? message.data : "";
     if (!payload) return;
-
     try {
-      const rawEvent = JSON.parse(payload);
-      ingestRawEvent(rawEvent, { source: "ws", transient: true, allowGitDiff: true });
+      ingestRawEvent(JSON.parse(payload));
     } catch {
-      ingestRawEvent(
-        {
-          type: "dashboard.parse.error",
-          ts: nowMs(),
-          message: "Invalid websocket payload",
-        },
-        { source: "dashboard", transient: true, allowGitDiff: false }
-      );
+      ingestRawEvent({ type: "dashboard.parse.error", ts: nowMs(), message: "Invalid websocket payload" });
     }
   });
 
@@ -1889,150 +1275,9 @@ function scheduleReconnect() {
   state.ws.status = `reconnecting in ${(delay / 1000).toFixed(1)}s`;
   renderWsStatus();
   state.ws.attempts += 1;
-
   state.ws.reconnectTimer = window.setTimeout(() => {
     connectWebSocket();
   }, delay);
-}
-
-async function setRepoOnHelper() {
-  const repoPath = repoPathInputEl.value.trim();
-  state.git.repoPath = repoPath;
-  state.git.useGitDiff = useGitDiffToggleEl.checked;
-  persistSettings();
-
-  if (!repoPath) {
-    helperStatusEl.textContent = "Helper: repo path required";
-    return;
-  }
-
-  try {
-    const response = await fetch(`${DIFF_HELPER_URL}/api/setRepo`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ repoPath }),
-    });
-
-    const payload = await response.json();
-    if (!response.ok || !payload.ok) {
-      helperStatusEl.textContent = `Helper: ${payload.error || "failed to set repo"}`;
-      return;
-    }
-
-    helperStatusEl.textContent = `Helper: repo set (${payload.baselineFiles} baseline files)`;
-  } catch {
-    helperStatusEl.textContent = "Helper: offline on :8790";
-  }
-}
-
-function setupEventHandlers() {
-  runListEl.addEventListener("click", handleRunListClick);
-  timelineListEl.addEventListener("click", handleTimelineClick);
-
-  newRunBtnEl.addEventListener("click", () => {
-    createManualRun();
-  });
-
-  reconnectBtnEl.addEventListener("click", () => {
-    state.ws.attempts = 0;
-    connectWebSocket();
-  });
-
-  focusModeBtnEl.addEventListener("click", () => {
-    state.ui.focusMode = !state.ui.focusMode;
-    document.body.classList.toggle("focus-mode", state.ui.focusMode);
-    focusModeBtnEl.textContent = `Focus View: ${state.ui.focusMode ? "On" : "Off"}`;
-    persistSettings();
-  });
-
-  setRepoBtnEl.addEventListener("click", () => {
-    setRepoOnHelper();
-  });
-
-  useGitDiffToggleEl.addEventListener("change", () => {
-    state.git.useGitDiff = useGitDiffToggleEl.checked;
-    persistSettings();
-  });
-
-  repoPathInputEl.addEventListener("change", () => {
-    state.git.repoPath = repoPathInputEl.value.trim();
-    persistSettings();
-  });
-
-  replaySpeedEl.addEventListener("change", () => {
-    const speed = Number(replaySpeedEl.value) || 1;
-    state.replay.speed = speed;
-    if (state.replay.playing) {
-      startReplayTimer();
-    }
-    renderReplayUi();
-  });
-
-  replaySliderEl.addEventListener("input", () => {
-    const sourceRun = getSelectedRealRun();
-    if (!sourceRun) return;
-
-    if (!state.replay.active || state.replay.sourceRunId !== sourceRun.runId) {
-      startReplay(sourceRun.runId);
-    }
-
-    state.replay.index = clamp(Number(replaySliderEl.value) || 0, 0, sourceRun.rawEvents.length);
-    rebuildReplayPreview();
-    renderUi();
-  });
-
-  playPauseBtnEl.addEventListener("click", () => {
-    const sourceRun = getSelectedRealRun();
-    if (!sourceRun) return;
-
-    if (!state.replay.active || state.replay.sourceRunId !== sourceRun.runId) {
-      startReplay(sourceRun.runId);
-    }
-
-    state.replay.playing = !state.replay.playing;
-    if (state.replay.playing) {
-      startReplayTimer();
-    } else {
-      stopReplayTimer();
-    }
-    renderReplayUi();
-  });
-
-  liveViewBtnEl.addEventListener("click", () => {
-    stopReplay();
-    renderUi();
-  });
-
-  exportRunBtnEl.addEventListener("click", () => {
-    exportSelectedRun();
-  });
-
-  importRunInputEl.addEventListener("change", async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    await importRunFromFile(file);
-    importRunInputEl.value = "";
-  });
-
-  simScoldedBtnEl.addEventListener("click", () => {
-    runScenario("scolded");
-  });
-
-  simLongtaskBtnEl.addEventListener("click", () => {
-    runScenario("longtask");
-  });
-
-  simAsleepBtnEl.addEventListener("click", () => {
-    runScenario("asleep");
-  });
-
-  simPackBtnEl.addEventListener("click", () => {
-    runSimulatorPack();
-  });
-
-  simSwarmBtnEl.addEventListener("click", () => {
-    runSwarmSimulation();
-  });
 }
 
 function startReplay(runId) {
@@ -2050,7 +1295,6 @@ function startReplay(runId) {
     agentId: `${sourceRun.agentId}:replay`,
     label: sourceRun.label,
   });
-
   rebuildReplayPreview();
 }
 
@@ -2069,21 +1313,17 @@ function rebuildReplayPreview() {
 
   const max = clamp(state.replay.index, 0, sourceRun.rawEvents.length);
   for (let i = 0; i < max; i += 1) {
-    integrateRawEvent(preview, sourceRun.rawEvents[i], {
-      source: "replay",
-      transient: true,
-      skipPersistence: true,
-      allowGitDiff: false,
-    });
+    const raw = sourceRun.rawEvents[i];
+    const derived = mapCodexToVizEvents(raw);
+    integrateDerivedSet(preview, raw, derived, { skipPersistence: true });
   }
 
   state.replay.previewRun = preview;
-  evaluateStuck(preview);
+  updateRunDerivedFields(preview);
 }
 
 function startReplayTimer() {
   stopReplayTimer();
-
   state.replay.timer = window.setInterval(() => {
     const sourceRun = state.runs.get(state.replay.sourceRunId);
     if (!sourceRun) {
@@ -2092,8 +1332,7 @@ function startReplayTimer() {
       return;
     }
 
-    const next = Math.min(sourceRun.rawEvents.length, state.replay.index + state.replay.speed);
-    state.replay.index = next;
+    state.replay.index = Math.min(sourceRun.rawEvents.length, state.replay.index + state.replay.speed);
     rebuildReplayPreview();
 
     if (state.replay.index >= sourceRun.rawEvents.length) {
@@ -2124,16 +1363,13 @@ function stopReplay() {
 function exportSelectedRun() {
   const run = getSelectedRealRun();
   if (!run) return;
-
   const lines = run.rawEvents.map((event) => JSON.stringify(event)).join("\n");
   const blob = new Blob([lines], { type: "application/jsonl" });
   const url = URL.createObjectURL(blob);
-
   const link = document.createElement("a");
   link.href = url;
   link.download = `${run.label.replace(/[^a-z0-9:_-]/gi, "_")}.jsonl`;
   link.click();
-
   URL.revokeObjectURL(url);
 }
 
@@ -2145,11 +1381,9 @@ async function importRunFromFile(file) {
   for (const line of lines) {
     try {
       const parsed = JSON.parse(line);
-      if (parsed && typeof parsed === "object") {
-        events.push(parsed);
-      }
+      if (parsed && typeof parsed === "object") events.push(parsed);
     } catch {
-      // Ignore non JSON lines.
+      // ignore
     }
   }
 
@@ -2164,18 +1398,45 @@ async function importRunFromFile(file) {
   });
 
   for (const event of events) {
-    ingestRawEvent(event, {
-      source: "import",
-      forceRunId: runId,
-      transient: true,
-      allowGitDiff: false,
-    });
+    ingestRawEvent(event, { forceRunId: runId, skipPersistence: true });
   }
 
   state.activeManualRunId = runId;
-  state.selectedRunId = runId;
+  selectRun(runId);
   queuePersistence();
   renderUi();
+}
+
+function clearSimulatorTimers() {
+  for (const timer of state.simulatorTimers) clearInterval(timer);
+  state.simulatorTimers.length = 0;
+}
+
+function runScenario(name) {
+  const events = scenarioEvents(name);
+  let index = 0;
+  const timer = window.setInterval(() => {
+    const event = events[index];
+    if (!event) {
+      clearInterval(timer);
+      return;
+    }
+
+    ingestRawEvent({ ...event, ts: nowMs() });
+    if (event.run_id) {
+      const runId = `explicit:${sanitizeRunIdentity(event.run_id)}`;
+      if (state.runs.has(runId)) selectRun(runId);
+    }
+    index += 1;
+  }, 900);
+  state.simulatorTimers.push(timer);
+}
+
+function runSimulatorPack() {
+  clearSimulatorTimers();
+  runScenario("scolded");
+  window.setTimeout(() => runScenario("longtask"), 400);
+  window.setTimeout(() => runScenario("asleep"), 800);
 }
 
 function scenarioEvents(name) {
@@ -2186,7 +1447,7 @@ function scenarioEvents(name) {
       { type: "tool.failed", run_id: "sim-scolded", message: "same error: expected 2 got 3", path: "tests/ui/navbar.test.ts" },
       { type: "tool.exec", run_id: "sim-scolded", tool: "Edit", message: "patch component", path: "ui/navbar.tsx" },
       { type: "tool.failed", run_id: "sim-scolded", message: "same error: expected 2 got 3", path: "tests/ui/navbar.test.ts" },
-      { type: "tool.exec", run_id: "sim-scolded", tool: "Read", message: "read logs", path: "logs/latest.md" },
+      { type: "note", run_id: "sim-scolded", message: "waiting for approval to rerun test" },
       { type: "turn.completed", run_id: "sim-scolded", message: "stopped after repeated failure" },
     ];
   }
@@ -2196,9 +1457,7 @@ function scenarioEvents(name) {
       { type: "turn.started", run_id: "sim-longtask", message: "Refactor infra pipeline" },
       { type: "tool.run", run_id: "sim-longtask", tool: "Read", message: "scan terraform", path: "infra/terraform/main.tf" },
       { type: "tool.run", run_id: "sim-longtask", tool: "Bash", message: "terraform plan", path: "infra/terraform/main.tf" },
-      { type: "tool.run", run_id: "sim-longtask", tool: "Read", message: "check deploy logs", path: "infra/deploy.yaml" },
-      { type: "tool.run", run_id: "sim-longtask", tool: "Bash", message: "kubectl describe pod" },
-      { type: "tool.run", run_id: "sim-longtask", tool: "Read", message: "retry and inspect" },
+      { type: "tool.failed", run_id: "sim-longtask", tool: "Bash", message: "dependency lock: waiting on service" },
       { type: "tool.run", run_id: "sim-longtask", tool: "Edit", message: "small update", path: "infra/deploy.yaml" },
       { type: "item.succeeded", run_id: "sim-longtask", message: "plan validated", path: "infra/deploy.yaml" },
       { type: "turn.completed", run_id: "sim-longtask", message: "long task wrapped" },
@@ -2214,211 +1473,177 @@ function scenarioEvents(name) {
   ];
 }
 
-function clearSimulatorTimers() {
-  for (const timer of state.simulatorTimers) {
-    clearInterval(timer);
-  }
-  state.simulatorTimers.length = 0;
-}
+function setupEventHandlers() {
+  newRunBtnEl.addEventListener("click", () => {
+    state.manualRunCounter += 1;
+    const runId = `manual:${state.manualRunCounter}`;
+    ensureRun(runId, {
+      manual: true,
+      agentId: `codex:run:${state.manualRunCounter}`,
+      label: `codex:run:${state.manualRunCounter}`,
+    });
+    state.activeManualRunId = runId;
+    selectRun(runId);
+  });
 
-function runScenario(name) {
-  const events = scenarioEvents(name);
-  let index = 0;
+  reconnectBtnEl.addEventListener("click", () => {
+    state.ws.attempts = 0;
+    connectWebSocket();
+  });
 
-  const timer = window.setInterval(() => {
-    const event = events[index];
-    if (!event) {
-      clearInterval(timer);
+  simScoldedBtnEl.addEventListener("click", () => runScenario("scolded"));
+  simLongtaskBtnEl.addEventListener("click", () => runScenario("longtask"));
+  simAsleepBtnEl.addEventListener("click", () => runScenario("asleep"));
+  simPackBtnEl.addEventListener("click", () => runSimulatorPack());
+
+  reducedMotionToggleEl.addEventListener("change", () => {
+    state.ui.reducedMotion = reducedMotionToggleEl.checked;
+    document.body.classList.toggle("reduced-motion", state.ui.reducedMotion);
+    persistSettings();
+  });
+
+  colorblindToggleEl.addEventListener("change", () => {
+    state.ui.colorblindPalette = colorblindToggleEl.checked;
+    document.body.classList.toggle("colorblind", state.ui.colorblindPalette);
+    persistSettings();
+    renderUi();
+  });
+
+  tileSizeSelectEl.addEventListener("change", () => {
+    state.ui.tileSize = tileSizeSelectEl.value;
+    persistSettings();
+    renderUi();
+  });
+
+  const updateFilter = () => {
+    state.ui.queueSearch = agentSearchEl.value;
+    state.ui.queueFilters.phase = phaseFilterEl.value;
+    state.ui.queueFilters.status = statusFilterEl.value;
+    state.ui.queueFilters.agentType = typeFilterEl.value;
+    persistSettings();
+    renderUi();
+  };
+
+  agentSearchEl.addEventListener("input", updateFilter);
+  phaseFilterEl.addEventListener("change", updateFilter);
+  statusFilterEl.addEventListener("change", updateFilter);
+  typeFilterEl.addEventListener("change", updateFilter);
+
+  attentionQueueEl.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-action]");
+    const card = event.target.closest("[data-run-id]");
+    const runId = button?.dataset.runId || card?.dataset.runId;
+    if (!runId) return;
+
+    const action = button?.dataset.action;
+    if (!action) {
+      selectRun(runId);
       return;
     }
 
-    ingestRawEvent(
-      {
-        ...event,
-        ts: nowMs(),
-      },
-      { source: "sim", transient: true, allowGitDiff: false }
-    );
-
-    if (event.run_id) {
-      const runId = `explicit:${sanitizeRunIdentity(event.run_id)}`;
-      if (state.runs.has(runId)) {
-        state.selectedRunId = runId;
-      }
+    if (action === "approve") {
+      approveRun(runId);
+      return;
     }
+    if (action === "restart") {
+      restartRun(runId);
+      return;
+    }
+    if (action === "failure") {
+      selectRun(runId, { drawerMode: "failure" });
+      return;
+    }
+    if (action === "input") {
+      const text = window.prompt("Provide operator input:", "");
+      if (text) provideInput(runId, text);
+      return;
+    }
+    if (action === "open") {
+      selectRun(runId, { drawerMode: "overview" });
+    }
+  });
 
-    index += 1;
-  }, 900);
+  approvalListEl.addEventListener("click", (event) => {
+    const button = event.target.closest("button[data-action='approve']");
+    if (!button) return;
+    approveRun(button.dataset.runId);
+  });
 
-  state.simulatorTimers.push(timer);
+  approveNextBtnEl.addEventListener("click", () => {
+    const approvals = getRunsForView().filter((run) => run.requiresHumanGate).sort(queueSort);
+    if (approvals[0]) approveRun(approvals[0].runId);
+  });
+
+  batchApproveBtnEl.addEventListener("click", () => {
+    const approvals = getRunsForView().filter((run) => run.requiresHumanGate);
+    if (approvals.length === 0) return;
+    if (!window.confirm(`Approve all ${approvals.length} pending items?`)) return;
+    for (const run of approvals) approveRun(run.runId);
+  });
+
+  jumpFirstAnomalyBtnEl.addEventListener("click", () => {
+    const run = getSelectedRealRun();
+    if (run) jumpToFirstAnomaly(run.runId);
+  });
+
+  provideInputBtnEl.addEventListener("click", () => {
+    const run = getSelectedRealRun();
+    if (!run) return;
+    const text = window.prompt("Provide operator input:", "");
+    if (text) provideInput(run.runId, text);
+  });
+
+  replaySpeedEl.addEventListener("change", () => {
+    state.replay.speed = Number(replaySpeedEl.value) || 1;
+    if (state.replay.playing) startReplayTimer();
+    renderReplayUi();
+  });
+
+  replaySliderEl.addEventListener("input", () => {
+    const sourceRun = getSelectedRealRun();
+    if (!sourceRun) return;
+    if (!state.replay.active || state.replay.sourceRunId !== sourceRun.runId) startReplay(sourceRun.runId);
+    state.replay.index = clamp(Number(replaySliderEl.value) || 0, 0, sourceRun.rawEvents.length);
+    rebuildReplayPreview();
+    renderUi();
+  });
+
+  playPauseBtnEl.addEventListener("click", () => {
+    const sourceRun = getSelectedRealRun();
+    if (!sourceRun) return;
+    if (!state.replay.active || state.replay.sourceRunId !== sourceRun.runId) startReplay(sourceRun.runId);
+    state.replay.playing = !state.replay.playing;
+    if (state.replay.playing) startReplayTimer();
+    else stopReplayTimer();
+    renderReplayUi();
+  });
+
+  liveViewBtnEl.addEventListener("click", () => {
+    stopReplay();
+    renderUi();
+  });
+
+  exportRunBtnEl.addEventListener("click", () => exportSelectedRun());
+
+  importRunInputEl.addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    await importRunFromFile(file);
+    importRunInputEl.value = "";
+  });
+
+  window.addEventListener("resize", () => renderMapOverlay());
 }
 
-function runSimulatorPack() {
-  clearSimulatorTimers();
-
-  runScenario("scolded");
-  window.setTimeout(() => runScenario("longtask"), 400);
-  window.setTimeout(() => runScenario("asleep"), 800);
-}
-
-const CALM_SWARM_AGENT_COUNT = 5;
-const CALM_SWARM_TICK_MS = 1500;
-const CALM_SWARM_CYCLES = 12;
-const CALM_SWARM_ERROR_RATE = 0.08;
-const CALM_SWARM_SECONDARY_AGENT_RATE = 0.2;
-const CALM_SWARM_TURN_COMPLETE_RATE = 0.85;
-const CALM_SWARM_TOOL_RATE = 0.7;
-const CALM_SWARM_FILE_RATE = 0.5;
-
-function runSwarmSimulation() {
-  clearSimulatorTimers();
-
-  const swarmIds = Array.from({ length: CALM_SWARM_AGENT_COUNT }, (_, index) => `sim-swarm-${index + 1}`);
-  const phaseOrder = ["planning", "editing", "testing", "reporting", "approval"];
-  const filesByPhase = {
-    planning: ["docs/plan.md", "README.md", "src/task-brief.ts"],
-    editing: ["src/app.ts", "ui/dashboard.tsx", "src/utils/runner.ts"],
-    testing: ["tests/agent-flow.test.ts", "tests/integration/ws.test.ts", "tests/ui/panel.test.ts"],
-    reporting: ["docs/report.md", "docs/notes.md", "src/summary.ts"],
-    approval: ["infra/deploy.yaml", "infra/terraform/main.tf", "src/release.ts"],
-  };
-  const tools = ["Read", "Edit", "Bash", "Search"];
-  const phaseByAgent = new Map(swarmIds.map((id) => [id, 0]));
-  const lastOutcomeByAgent = new Map();
-
-  let tick = 0;
-  const maxTicks = CALM_SWARM_CYCLES;
-
-  const timer = window.setInterval(() => {
-    const primaryIndex = tick % swarmIds.length;
-    const primaryAgent = swarmIds[primaryIndex];
-    const activeAgents = [primaryAgent];
-
-    if (Math.random() < CALM_SWARM_SECONDARY_AGENT_RATE) {
-      const secondaryAgent = swarmIds[(primaryIndex + 2) % swarmIds.length];
-      if (secondaryAgent !== primaryAgent) {
-        activeAgents.push(secondaryAgent);
-      }
-    }
-
-    for (const runId of activeAgents) {
-      const phaseIndex = phaseByAgent.get(runId) || 0;
-      const phase = phaseOrder[phaseIndex % phaseOrder.length];
-      const pool = filesByPhase[phase] || filesByPhase.editing;
-      const filePath = pool[Math.floor(Math.random() * pool.length)];
-      const tool = tools[Math.floor(Math.random() * tools.length)];
-
-      ingestRawEvent(
-        {
-          type: "turn.started",
-          run_id: runId,
-          ts: nowMs(),
-          message: `Swarm ${runId} ${phase}`,
-        },
-        { source: "sim", transient: true, allowGitDiff: false }
-      );
-
-      if (Math.random() < CALM_SWARM_TOOL_RATE) {
-        ingestRawEvent(
-          {
-            type: "tool.run",
-            run_id: runId,
-            ts: nowMs(),
-            tool,
-            message: `${phase}: ${tool} on ${filePath}`,
-            path: filePath,
-          },
-          { source: "sim", transient: true, allowGitDiff: false }
-        );
-      }
-
-      if (Math.random() < CALM_SWARM_FILE_RATE) {
-        ingestRawEvent(
-          {
-            type: "file.changed",
-            run_id: runId,
-            ts: nowMs(),
-            message: `${phase}: updated ${filePath}`,
-            path: filePath,
-          },
-          { source: "sim", transient: true, allowGitDiff: false }
-        );
-      }
-
-      const lastOutcome = lastOutcomeByAgent.get(runId) || "success";
-      const shouldFail = Math.random() < CALM_SWARM_ERROR_RATE && lastOutcome !== "failed";
-      if (shouldFail) {
-        ingestRawEvent(
-          {
-            type: "tool.failed",
-            run_id: runId,
-            ts: nowMs(),
-            message: `${phase}: intermittent failure on ${filePath}`,
-            path: filePath,
-          },
-          { source: "sim", transient: true, allowGitDiff: false }
-        );
-        lastOutcomeByAgent.set(runId, "failed");
-      } else {
-        ingestRawEvent(
-          {
-            type: "item.succeeded",
-            run_id: runId,
-            ts: nowMs(),
-            message: `${phase}: validated ${filePath}`,
-            path: filePath,
-          },
-          { source: "sim", transient: true, allowGitDiff: false }
-        );
-        lastOutcomeByAgent.set(runId, "success");
-      }
-
-      if (Math.random() < CALM_SWARM_TURN_COMPLETE_RATE) {
-        ingestRawEvent(
-          {
-            type: "turn.completed",
-            run_id: runId,
-            ts: nowMs(),
-            message: `${phase} complete`,
-          },
-          { source: "sim", transient: true, allowGitDiff: false }
-        );
-      }
-
-      phaseByAgent.set(runId, (phaseIndex + 1) % phaseOrder.length);
-    }
-
-    const selectedRun = `explicit:${sanitizeRunIdentity(primaryAgent)}`;
-    if (state.runs.has(selectedRun)) {
-      state.selectedRunId = selectedRun;
-    }
-
-    tick += 1;
-    if (tick >= maxTicks) {
-      clearInterval(timer);
-    }
-  }, CALM_SWARM_TICK_MS);
-
-  state.simulatorTimers.push(timer);
-}
-
-let previousFrameTime = performance.now();
-
+let lastFrameAt = performance.now();
 function frame(now) {
-  const dt = clamp((now - previousFrameTime) / 1000, 0, 0.05);
-  previousFrameTime = now;
-
-  for (const run of state.runs.values()) {
-    updateRunAnimations(run, dt);
-    evaluateStuck(run, nowMs());
+  if (now - lastFrameAt > 250) {
+    lastFrameAt = now;
+    renderGlobalHud();
+    drawMap();
+    renderNeedsAttentionQueue(getRunsForView());
+    renderApprovalStreet(getRunsForView());
   }
-
-  if (state.replay.active && state.replay.previewRun) {
-    updateRunAnimations(state.replay.previewRun, dt);
-    evaluateStuck(state.replay.previewRun, nowMs());
-  }
-
-  drawRun(getActiveRunForView(), now / 1000);
   requestAnimationFrame(frame);
 }
 
@@ -2428,22 +1653,24 @@ function boot() {
   restoreRunsFromStorage();
   setupEventHandlers();
   connectWebSocket();
-
   state.replay.speed = Number(replaySpeedEl.value) || 1;
-
+  updateAllDerived();
   renderUi();
   requestAnimationFrame(frame);
 }
 
 window.dispatchAgentEvent = (event) => {
-  ingestRawEvent(event, { source: "manual", transient: true, allowGitDiff: false });
+  ingestRawEvent(event);
 };
 
 window.agentVizDemo = {
   runScenario,
   runSimulatorPack,
-  runSwarmSimulation,
   dispatch: (event) => window.dispatchAgentEvent(event),
+  approveRun,
+  restartRun,
+  provideInput,
+  jumpToFirstAnomaly,
 };
 
 boot();
