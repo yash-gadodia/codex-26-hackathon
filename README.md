@@ -46,7 +46,7 @@ Default load state:
 - streets canvas as the main viewport
 - left-edge `OPS` tab with attention badge (drawer closed by default)
 - right agent drawer closed until an agent is selected
-- bottom Approval Street as a thin strip when approvals are `0 pending`
+- Approval Street overlays the map on taller viewports and moves below the map on compact-height screens to keep controls readable
 
 Core interactions:
 

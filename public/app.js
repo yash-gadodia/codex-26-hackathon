@@ -128,6 +128,8 @@ const summaryRunSimBtnEl = document.getElementById("summaryRunSimBtn");
 const viewCityBtnEl = document.getElementById("viewCityBtn");
 const viewPaneBtnEl = document.getElementById("viewPaneBtn");
 const topSummaryBarEl = document.getElementById("topSummaryBar");
+const shellEl = document.querySelector(".shell");
+const brandStripEl = document.querySelector(".brand-strip");
 
 const mapViewportEl = document.getElementById("mapViewport");
 const mapOverlayEl = document.getElementById("mapOverlay");
@@ -239,6 +241,7 @@ const state = {
     queueSignature: "",
     approvalSignature: "",
     paneSignature: "",
+    compactHeightLayout: false,
     demoScriptVisible: false,
     demoScriptText: "",
     simulationLock: false,
@@ -597,6 +600,23 @@ function applyViewModeToDom() {
   document.body.classList.toggle("view-pane", mode === "pane");
   viewCityBtnEl.classList.toggle("active", mode === "city");
   viewPaneBtnEl.classList.toggle("active", mode === "pane");
+}
+
+function applyResponsiveLayoutMode() {
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const shellStyle = shellEl ? window.getComputedStyle(shellEl) : null;
+  const shellPaddingTop = shellStyle ? Number.parseFloat(shellStyle.paddingTop) || 0 : 0;
+  const shellPaddingBottom = shellStyle ? Number.parseFloat(shellStyle.paddingBottom) || 0 : 0;
+  const shellRowGap = shellStyle ? Number.parseFloat(shellStyle.rowGap || shellStyle.gap) || 0 : 0;
+  const brandHeight = brandStripEl?.offsetHeight || 0;
+  const topSummaryHeight = topSummaryBarEl?.offsetHeight || 0;
+  const shellBudget = Math.max(
+    0,
+    viewportHeight - shellPaddingTop - shellPaddingBottom - shellRowGap * 2 - brandHeight - topSummaryHeight
+  );
+  const compactHeightLayout = shellBudget > 0 && shellBudget < 640;
+  state.ui.compactHeightLayout = compactHeightLayout;
+  document.body.classList.toggle("layout-compact-height", compactHeightLayout);
 }
 
 function setViewMode(mode, options = {}) {
@@ -2409,6 +2429,7 @@ function renderWsStatus() {
 }
 
 function renderUi() {
+  applyResponsiveLayoutMode();
   updateAllDerived();
   const runs = getRunsForView();
   state.ui.queueSignature = "";
@@ -3154,6 +3175,7 @@ function setupEventHandlers() {
   });
 
   window.addEventListener("resize", () => {
+    applyResponsiveLayoutMode();
     state.ui.overlaySignature = "";
     renderMapOverlay();
   });
@@ -3199,6 +3221,7 @@ async function boot() {
     console.error("[city-art] preload crashed, using vector street fallback", error);
   }
   restoreSettings();
+  applyResponsiveLayoutMode();
   restoreRunsFromStorage();
   setupEventHandlers();
   setOpsDrawerOpen(false);

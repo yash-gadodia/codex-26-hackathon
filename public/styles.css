@@ -16,6 +16,7 @@
   --blocked: #d55c45;
   --loop: #bf4f3d;
   --failed: #9d2f2f;
+  --map-height-compact: clamp(360px, 56dvh, 620px);
 }
 
 * {
@@ -36,7 +37,8 @@ body {
     radial-gradient(circle at 90% 4%, rgba(88, 168, 255, 0.16), rgba(88, 168, 255, 0) 34%),
     radial-gradient(circle at 45% 0%, rgba(255, 209, 0, 0.15), rgba(255, 209, 0, 0) 44%),
     linear-gradient(180deg, var(--bg-2), var(--bg-1));
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 body.colorblind {
@@ -49,9 +51,9 @@ body.colorblind {
 }
 
 .shell {
-  height: 100vh;
+  min-height: 100dvh;
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr);
   gap: 10px;
   padding: 12px;
 }
@@ -295,6 +297,8 @@ body.colorblind {
 
 .stage {
   min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .view-toggle {
@@ -315,6 +319,7 @@ body.colorblind {
   overflow: hidden;
   background: #ebf5ff;
   height: 100%;
+  max-height: none;
   min-height: 0;
 }
 
@@ -458,6 +463,16 @@ body.colorblind {
   image-rendering: pixelated;
 }
 
+body.layout-compact-height .map-wrap {
+  height: auto;
+  max-height: none;
+  overflow: visible;
+}
+
+body.layout-compact-height #cityCanvas {
+  height: var(--map-height-compact);
+}
+
 body.view-city .map-wrap {
   display: block;
 }
@@ -517,6 +532,15 @@ body.view-pane .pane-wrap {
   border-color: rgba(169, 211, 235, 0.4);
   background: rgba(16, 36, 53, 0.84);
   box-shadow: 0 6px 14px rgba(9, 23, 36, 0.22);
+}
+
+body.layout-compact-height .approval-street-overlay {
+  position: static;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  margin: 8px 10px 10px;
+  z-index: auto;
 }
 
 .approval-street.collapsed {
@@ -1035,6 +1059,51 @@ body.reduced-motion * {
     min-width: 0;
     width: 100%;
     max-width: 460px;
+  }
+}
+
+@media (max-height: 920px) {
+  .summary-chip,
+  .chip,
+  .caption-pill {
+    padding: 5px 8px;
+    font-size: 11px;
+  }
+
+  .summary-cta {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+
+  .demo-script-banner {
+    min-width: min(560px, calc(100% - 20px));
+    padding: 10px 12px;
+  }
+
+  .demo-script-text {
+    font-size: 15px;
+  }
+
+  .drawer-panel {
+    width: clamp(320px, 28vw, 390px);
+  }
+}
+
+@media (max-height: 820px) {
+  .approval-toggle {
+    min-width: 214px;
+    font-size: 18px;
+    padding: 7px 14px;
+  }
+
+  .approval-tile {
+    min-width: 158px;
+  }
+}
+
+@media (max-height: 760px) {
+  :root {
+    --map-height-compact: clamp(320px, 52dvh, 520px);
   }
 }
 
