@@ -2277,15 +2277,40 @@ function runSwimlaneDemo() {
   ];
   const interventionState = {
     opsOpened: false,
+    holds: new Map(),
+    recoveriesShown: new Set(),
   };
+  const HOLD_STALL = "stall";
+  const HOLD_APPROVAL = "approval";
 
   let cycle = 0;
   const timer = window.setInterval(() => {
+    for (const [runId, holdReason] of interventionState.holds.entries()) {
+      const explicitRunId = `explicit:${sanitizeRunIdentity(runId)}`;
+      const run = state.runs.get(explicitRunId);
+      const released = Boolean(run && !run.requiresHumanGate && !run.blocked);
+      if (!released) continue;
+      interventionState.holds.delete(runId);
+      if (!interventionState.recoveriesShown.has(runId)) {
+        interventionState.recoveriesShown.add(runId);
+        const recoveryText =
+          holdReason === HOLD_STALL
+            ? "Step 3: Stalled agent was approved and is moving again."
+            : "Step 4: Approval granted. Agent resumed flow.";
+        setDemoScriptBanner(recoveryText, true);
+      }
+    }
+
     if (cycle >= DEMO_SWIMLANE_CYCLES) {
       clearInterval(timer);
-      setDemoScriptBanner("Demo complete: interventions resolved and agents finished.", true);
+      const pending = interventionState.holds.size;
+      if (pending > 0) {
+        setDemoScriptBanner(`Demo paused: ${pending} agent${pending > 1 ? "s" : ""} waiting for manual approval.`, true);
+      } else {
+        setDemoScriptBanner("Demo complete: interventions resolved and agents finished.", true);
+      }
       const hideTimer = window.setTimeout(() => {
-        setDemoScriptBanner("", false);
+        if (interventionState.holds.size === 0) setDemoScriptBanner("", false);
         clearTimeout(hideTimer);
       }, 3200);
       return;
@@ -2293,7 +2318,8 @@ function runSwimlaneDemo() {
 
     const primary = demoAgents[cycle % demoAgents.length];
     const secondary = demoAgents[(cycle + 2) % demoAgents.length];
-    const activeAgents = cycle % 3 === 0 ? [primary, secondary] : [primary];
+    const candidates = cycle % 3 === 0 ? [primary, secondary] : [primary];
+    const activeAgents = candidates.filter((agent) => !interventionState.holds.has(agent.id));
 
     for (const agent of activeAgents) {
       const runId = agent.id;
@@ -2350,13 +2376,15 @@ function runSwimlaneDemo() {
 
       if (cycle === 3 && agent.id === "sim-lane-verify-1") {
         needsManualIntervention = true;
-        setDemoScriptBanner("Step 2: Verification agent is stalled. Open Ops and unblock it.", true);
+        setDemoScriptBanner("Step 2: Verification agent is in cul-de-sac. Click Approve next to unblock.", true);
+        interventionState.holds.set(runId, HOLD_STALL);
         ingestRawEvent({
           ...base,
           type: "note",
           ts: nowMs() + 3,
-          message: "Blocked waiting for flaky integration dependency. Needs operator intervention.",
+          message: "Blocked waiting for flaky integration dependency. Awaiting user approval to retry.",
         });
+        setApprovalStreetExpanded(true, { manual: false });
 
         if (!interventionState.opsOpened) {
           interventionState.opsOpened = true;
@@ -2367,6 +2395,7 @@ function runSwimlaneDemo() {
       if ((cycle === 5 && agent.id === "sim-lane-report-1") || (cycle === 8 && agent.id === "sim-lane-exec-2")) {
         needsManualIntervention = true;
         setDemoScriptBanner("Step 3: Approval gate triggered. Use Approval Street to continue.", true);
+        interventionState.holds.set(runId, HOLD_APPROVAL);
         ingestRawEvent({
           ...base,
           type: "note",
@@ -2387,6 +2416,22 @@ function runSwimlaneDemo() {
           message: `${agent.phase} step completed`,
         });
       }
+    }
+
+    for (const [runId] of interventionState.holds.entries()) {
+      const explicitRunId = `explicit:${sanitizeRunIdentity(runId)}`;
+      const run = state.runs.get(explicitRunId);
+      if (!run || cycle % 3 !== 0) continue;
+      ingestRawEvent(
+        {
+          type: "note",
+          run_id: runId,
+          lane: run.lane || laneNameForPhase(run.currentPhase),
+          ts: nowMs() + 4,
+          message: "Still waiting for manual approval to continue.",
+        },
+        { forceRunId: explicitRunId }
+      );
     }
 
     cycle += 1;
