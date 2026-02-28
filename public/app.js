@@ -1780,7 +1780,7 @@ function drawMap() {
   let densityTriggered = false;
   const lanes = PHASE_COLUMNS.map((lane, idx) => {
     const g = phaseLaneGeometry(idx);
-    const laneRuns = runs.filter((run) => !run.requiresHumanGate && run.currentPhase === lane.id);
+    const laneRuns = runs.filter((run) => run.currentPhase === lane.id);
     const culRuns = laneRuns.filter((run) => CULDESAC_BLOCKERS.has(run.blockerClass));
     const mainRuns = laneRuns.filter((run) => !CULDESAC_BLOCKERS.has(run.blockerClass));
     const activeCount = laneRuns.filter((run) => run.operationalStatus === "active").length;
@@ -2465,7 +2465,6 @@ function runSwimlaneDemo() {
     { id: "sim-lane-exec-2", phase: "execute" },
   ];
   const interventionState = {
-    opsOpened: false,
     holds: new Map(),
     recoveriesShown: new Set(),
     triggered: new Set(),
@@ -2579,11 +2578,6 @@ function runSwimlaneDemo() {
           message: "Blocked waiting for flaky integration dependency. Awaiting user approval to retry.",
         });
         setApprovalStreetExpanded(true, { manual: false });
-
-        if (!interventionState.opsOpened) {
-          interventionState.opsOpened = true;
-          setOpsDrawerOpen(true);
-        }
       }
 
       if (
