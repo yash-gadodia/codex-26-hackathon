@@ -6,7 +6,8 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const publicDir = path.join(__dirname, "public");
-const port = 8788;
+const port = Number(process.env.PORT || "8788");
+const host = process.env.HOST || "0.0.0.0";
 
 const contentTypes = {
   ".html": "text/html; charset=utf-8",
@@ -53,6 +54,6 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(port, () => {
-  console.log(`Static server running at http://localhost:${port}`);
+server.listen(port, host, () => {
+  console.log(`Static server running at http://${host}:${port}`);
 });

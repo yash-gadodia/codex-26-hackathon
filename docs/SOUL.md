@@ -7,6 +7,30 @@
 - Demo reliability: simulator mode and replay controls must always be available.
 - Actionable insight: scorecard and stuck interventions should guide operator decisions.
 
+## Judging Alignment
+
+Everything in this project should map to the official judging criteria:
+
+1. Clarity of idea
+- UI must explain "what is happening now" within 5 seconds.
+- Labels and captions should use plain language over protocol jargon.
+
+2. Technical execution
+- Live Codex app-server integration must be visible and verifiable.
+- Fail-fast behavior should be explicit so operators trust runtime status.
+
+3. Completeness
+- End-to-end flow should work: ingest -> derive -> visualize -> inspect -> replay.
+- Simulator and replay are mandatory reliability paths for stage demos.
+
+4. Impact and insight
+- Dashboard must not only display activity, but recommend next interventions.
+- Stuck detection and scorecard should support real operator decisions.
+
+5. Use of Codex
+- Demo must clearly show Codex-driven events, not synthetic-only behavior.
+- Raw event inspector should make Codex signal provenance obvious.
+
 ## Singapore Pixel Theme
 
 Visual anchors:

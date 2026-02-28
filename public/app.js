@@ -5,8 +5,12 @@ import {
   getRawEventType,
 } from "./mapping.js";
 
-const WS_URL = "ws://localhost:8787";
-const DIFF_HELPER_URL = "http://localhost:8790";
+const PAGE_QUERY = new URLSearchParams(window.location.search);
+const DEFAULT_HOST = window.location.hostname || "localhost";
+const DEFAULT_WS_SCHEME = window.location.protocol === "https:" ? "wss" : "ws";
+const WS_URL = PAGE_QUERY.get("ws") || `${DEFAULT_WS_SCHEME}://${DEFAULT_HOST}:8787`;
+const DIFF_HELPER_URL =
+  PAGE_QUERY.get("helper") || `${window.location.protocol}//${DEFAULT_HOST}:8790`;
 const STORAGE_KEY = "agent-viz-runs-v2";
 const SETTINGS_KEY = "agent-viz-settings-v1";
 const HARDCODED_REPO_PATH = "/Users/yash/Documents/Voltade/Code/openclaw";

@@ -12,7 +12,8 @@ function arg(name, fallback = null) {
 
 const repo = arg("--repo", process.cwd());
 const prompt = arg("--prompt", "Run tests and fix the first failure.");
-const port = Number(arg("--port", "8787"));
+const port = Number(arg("--port", process.env.PORT || "8787"));
+const host = process.env.HOST || "0.0.0.0";
 const appServerPort = Number(arg("--app-server-port", "8791"));
 
 if (!fs.existsSync(repo)) {
@@ -21,9 +22,9 @@ if (!fs.existsSync(repo)) {
 }
 
 const resolvedRepo = path.resolve(repo);
-const wss = new WebSocketServer({ port });
+const wss = new WebSocketServer({ port, host });
 
-console.log(`WebSocket relay listening on ws://localhost:${port}`);
+console.log(`WebSocket relay listening on ws://${host}:${port}`);
 console.log(`Repo: ${resolvedRepo}`);
 console.log(`Prompt: ${prompt}`);
 console.log(`App-server endpoint: ws://127.0.0.1:${appServerPort}`);

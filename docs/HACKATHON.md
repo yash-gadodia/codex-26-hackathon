@@ -18,6 +18,24 @@ WIMUT converts streaming Codex app-server notifications into a Singapore-themed 
 - Helps teams intervene earlier when loops or repeated failures appear
 - Makes demos legible for technical and non-technical judges
 
+## Official Judging Criteria
+
+1. Clarity of idea
+2. Technical execution
+3. Completeness
+4. Impact and insight
+5. Use of Codex
+
+## Submission Requirements
+
+Submissions close at **6:00 PM local time**.
+
+Required deliverables:
+
+1. Public GitHub repo
+2. 2 minute video
+3. Optional demo link
+
 ## Evaluation Angle
 
 The dashboard reports measurable run signals:
@@ -39,12 +57,13 @@ This gives a lightweight eval lens without requiring runtime-specific integratio
 
 1. Start `npm run dev` and open `http://localhost:8788`.
 2. Start relay against a repo with `node relay.mjs --repo <path> --prompt "..."`.
-3. Show run lanes and live websocket status.
-4. Trigger activity and point at district mapping and animations.
-5. Open a timeline item and inspect raw plus derived meaning.
-6. Show stuck score and suggested intervention copy.
-7. Use replay slider and `2x` speed.
-8. Trigger simulator pack for `scolded`, `longtask`, `asleep`.
+3. State the idea clearly in one line: "We make agent runs observable and intervenable."
+4. Show run lanes and live websocket status (technical execution + Codex usage).
+5. Trigger activity and point at district mapping and animations (clarity + impact).
+6. Open a timeline item and inspect raw plus derived meaning (completeness).
+7. Show stuck score and suggested intervention copy (insight).
+8. Use replay slider and `2x` speed for deterministic proof (completeness).
+9. Trigger simulator pack for `scolded`, `longtask`, `asleep` fallback reliability.
 
 ## Scope Guardrails
 

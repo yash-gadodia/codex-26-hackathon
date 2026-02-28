@@ -20,6 +20,26 @@ WIMUT turns Codex runtime signals into a visual control tower:
 - stable derived signals (`tool`, `file change`, `error`, `success`, `step`)
 - map + timeline + scorecard + replay for fast operator decisions
 
+## Hackathon Judging Criteria
+
+Use this rubric as the delivery target for every demo, feature, and narrative:
+
+1. Clarity of idea
+2. Technical execution
+3. Completeness
+4. Impact and insight
+5. Use of Codex
+
+## Submission Requirements
+
+Submissions close at **6:00 PM local time**.
+
+Required:
+
+1. Public GitHub repository
+2. 2 minute video
+3. Optional demo link
+
 ## What This Is
 
 - Real-time visualiser for Codex app-server notifications

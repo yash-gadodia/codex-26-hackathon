@@ -5,7 +5,8 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const port = 8790;
+const port = Number(process.env.PORT || "8790");
+const host = process.env.HOST || "0.0.0.0";
 
 const state = {
   repoPath: null,
@@ -206,6 +207,6 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(port, () => {
-  console.log(`Diff helper listening on http://localhost:${port}`);
+server.listen(port, host, () => {
+  console.log(`Diff helper listening on http://${host}:${port}`);
 });
