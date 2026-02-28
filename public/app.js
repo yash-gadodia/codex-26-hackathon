@@ -114,6 +114,7 @@ const summaryFirstAnomalyEl = document.getElementById("summaryFirstAnomaly");
 const summaryNeedsAttentionEl = document.getElementById("summaryNeedsAttention");
 const summaryStalledEl = document.getElementById("summaryStalled");
 const summaryApprovalsEl = document.getElementById("summaryApprovals");
+const summaryAnnouncementEl = document.getElementById("summaryAnnouncement");
 const summaryPrimaryCtaEl = document.getElementById("summaryPrimaryCta");
 const summaryRunSimBtnEl = document.getElementById("summaryRunSimBtn");
 const viewCityBtnEl = document.getElementById("viewCityBtn");
@@ -210,6 +211,9 @@ const state = {
     opsDevtoolsExpanded: false,
     highlightRunId: null,
     summaryFocusRunId: null,
+    latestCommandText: "",
+    latestCommandTs: 0,
+    latestCommandSource: "",
     criticalToastUntil: 0,
     previousCriticalCount: 0,
     mapDensityMode: false,
@@ -403,6 +407,102 @@ function setDemoScriptBanner(text = "", visible = false) {
   if (!demoScriptBannerEl || !demoScriptTextEl) return;
   demoScriptTextEl.textContent = state.ui.demoScriptText || "Step 1: Agents start working across lanes.";
   demoScriptBannerEl.hidden = !state.ui.demoScriptVisible;
+}
+
+function shellQuote(value) {
+  const text = String(value || "");
+  if (!text) return "''";
+  if (/^[a-zA-Z0-9_./:@-]+$/.test(text)) return text;
+  return `'${text.replace(/'/g, "'\\''")}'`;
+}
+
+function compactText(value) {
+  return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function firstCommandCandidate(rawEvent) {
+  const params = rawEvent?.params && typeof rawEvent.params === "object" ? rawEvent.params : {};
+  const item = params?.item && typeof params.item === "object" ? params.item : {};
+  const input = item?.input && typeof item.input === "object" ? item.input : {};
+  const candidates = [
+    rawEvent?.command,
+    rawEvent?.cmd,
+    params?.command,
+    params?.cmd,
+    item?.command,
+    item?.cmd,
+    input?.command,
+    input?.cmd,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string") continue;
+    const text = compactText(candidate);
+    if (text) return text;
+  }
+  return "";
+}
+
+function extractCommandAnnouncement(rawEvent) {
+  const type = String(rawEvent?.type || "");
+  if (type === "swarm.agent.started") {
+    const relayCommand = [
+      "node relay.mjs",
+      "--repo",
+      shellQuote(rawEvent?.repo),
+      "--prompt",
+      shellQuote(rawEvent?.prompt),
+      "--port",
+      String(rawEvent?.relayPort || ""),
+      "--app-server-port",
+      String(rawEvent?.appServerPort || ""),
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return {
+      source: "Launch",
+      text: `${rawEvent?.agent || "agent"} -> ${relayCommand}`,
+    };
+  }
+
+  if (type === "relay.started") {
+    return {
+      source: "Launch",
+      text: `codex app-server --listen ws://127.0.0.1:${rawEvent?.appServerPort || 8791}`,
+    };
+  }
+
+  const method = String(rawEvent?.method || "").toLowerCase();
+  const rawType = String(rawEvent?.type || "").toLowerCase();
+  const command = firstCommandCandidate(rawEvent);
+  if (command) {
+    return {
+      source: "Last command",
+      text: command,
+    };
+  }
+
+  const message = compactText(rawEvent?.message || rawEvent?.params?.message || rawEvent?.params?.item?.message || "");
+  const commandLike = /(npm |pnpm |yarn |bun |node |python |pytest|go test|cargo test|make |git |docker |terraform )/i.test(message);
+  const commandContext =
+    method.includes("commandexecution") || method.includes("command") || /tool\.run|tool\.exec|bash|terminal/.test(rawType);
+  if (!commandLike || !commandContext) return null;
+
+  return {
+    source: "Last command",
+    text: message,
+  };
+}
+
+function updateAnnouncementFromRawEvent(rawEvent) {
+  const next = extractCommandAnnouncement(rawEvent);
+  if (!next?.text) return false;
+  const text = compactText(next.text).slice(0, 220);
+  const source = next.source || "Announcement";
+  if (state.ui.latestCommandText === text && state.ui.latestCommandSource === source) return false;
+  state.ui.latestCommandText = text;
+  state.ui.latestCommandSource = source;
+  state.ui.latestCommandTs = getRawEventTimestamp(rawEvent) || nowMs();
+  return true;
 }
 
 function applyViewModeToDom() {
@@ -806,8 +906,12 @@ function integrateDerivedSet(run, rawEvent, derivedEvents, options = {}) {
 
 function ingestRawEvent(rawEvent, options = {}) {
   if (!rawEvent || typeof rawEvent !== "object") return;
+  const announcementUpdated = updateAnnouncementFromRawEvent(rawEvent);
   const derivedEvents = mapCodexToVizEvents(rawEvent);
-  if (derivedEvents.length === 0) return;
+  if (derivedEvents.length === 0) {
+    if (announcementUpdated) renderUi();
+    return;
+  }
   const run = pickRunForRawEvent(rawEvent, options.forceRunId || null);
   integrateDerivedSet(run, rawEvent, derivedEvents, { skipPersistence: options.skipPersistence === true });
   if (!state.selectedRunId) state.selectedRunId = run.runId;
@@ -1154,6 +1258,14 @@ function renderGlobalHud() {
   summaryNeedsAttentionEl.textContent = `Needs attention: ${attentionRuns.length}`;
   summaryStalledEl.textContent = `System stalled: ${stalledRuns.length}`;
   summaryApprovalsEl.textContent = `Approvals pending: ${approvals.length}`;
+  if (summaryAnnouncementEl) {
+    if (state.ui.latestCommandText) {
+      summaryAnnouncementEl.textContent = `${state.ui.latestCommandSource}: ${state.ui.latestCommandText}`;
+      summaryAnnouncementEl.classList.remove("is-hidden");
+    } else {
+      summaryAnnouncementEl.classList.add("is-hidden");
+    }
+  }
 
   opsTabBadgeEl.textContent = String(attentionRuns.length);
   opsTabBadgeEl.classList.toggle("critical", criticalCount > 0);

@@ -183,6 +183,12 @@ body.colorblind {
   font-weight: 700;
 }
 
+.summary-announcement {
+  max-width: min(44vw, 520px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .button-chip {
   cursor: pointer;
   font: inherit;
@@ -204,38 +210,62 @@ body.colorblind {
 
 .summary-cta-run {
   margin-left: auto;
-  padding: 9px 14px;
+  padding: 10px 16px;
   border-radius: 12px;
-  border-color: rgba(19, 124, 62, 0.75);
+  border: 2px solid #ffe282;
   background: linear-gradient(180deg, #18b459, #0d9447);
   color: #f4fff8;
   font-size: 13px;
-  letter-spacing: 0.06em;
-  box-shadow: 0 4px 14px rgba(9, 124, 59, 0.25);
+  font-weight: 900;
+  letter-spacing: 0.07em;
+  box-shadow:
+    0 0 0 3px rgba(255, 226, 130, 0.32),
+    0 8px 18px rgba(9, 124, 59, 0.3);
   transition:
     transform 200ms ease,
     box-shadow 200ms ease,
     filter 200ms ease;
+  animation: sim-cta-attention 2.2s ease-in-out infinite;
 }
 
 .summary-cta-run.pulse {
   animation: sim-cta-pulse 1.9s ease-in-out infinite;
 }
 
+@keyframes sim-cta-attention {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 3px rgba(255, 226, 130, 0.3),
+      0 8px 18px rgba(9, 124, 59, 0.3);
+  }
+  50% {
+    box-shadow:
+      0 0 0 6px rgba(255, 226, 130, 0.55),
+      0 11px 22px rgba(9, 124, 59, 0.36);
+  }
+}
+
 @keyframes sim-cta-pulse {
   0% {
     transform: translateY(0) scale(1);
-    box-shadow: 0 4px 14px rgba(9, 124, 59, 0.25);
+    box-shadow:
+      0 0 0 3px rgba(255, 226, 130, 0.3),
+      0 8px 18px rgba(9, 124, 59, 0.3);
     filter: saturate(1);
   }
   50% {
     transform: translateY(-1px) scale(1.02);
-    box-shadow: 0 8px 20px rgba(9, 124, 59, 0.38);
+    box-shadow:
+      0 0 0 6px rgba(255, 226, 130, 0.55),
+      0 11px 22px rgba(9, 124, 59, 0.38);
     filter: saturate(1.08);
   }
   100% {
     transform: translateY(0) scale(1);
-    box-shadow: 0 4px 14px rgba(9, 124, 59, 0.25);
+    box-shadow:
+      0 0 0 3px rgba(255, 226, 130, 0.3),
+      0 8px 18px rgba(9, 124, 59, 0.3);
     filter: saturate(1);
   }
 }
