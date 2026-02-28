@@ -39,6 +39,31 @@ const DISTRICTS = {
   Changi: { x: 52, y: 24, w: 20, h: 13, color: "#6ea4c5", glow: "#ace0f7" },
 };
 
+const PHASE_LANES = [
+  { id: "plan", street: "Planning Street", color: "#8fa9f3", accent: "#c9d9ff" },
+  { id: "execute", street: "Execution Street", color: "#76c897", accent: "#b8f2d0" },
+  { id: "verify", street: "Verification Street", color: "#f0c276", accent: "#ffe1aa" },
+  { id: "report", street: "Reporting Street", color: "#84c8ea", accent: "#c5ebff" },
+  { id: "approval", street: "Approval Street", color: "#d89ad8", accent: "#f0c6f0" },
+];
+
+const ATTENTION_RANK = {
+  none: 0,
+  info: 1,
+  warn: 2,
+  critical: 3,
+};
+const WAITING_WINDOW_MS = 120000;
+const VISUAL_STATE_COLORS = {
+  active: "#5FCF78",
+  waiting: "#E7C94C",
+  "needs-human": "#9B6DDF",
+  blocked: "#D84B4B",
+  failed: "#7C1F1F",
+  done: "#7B8087",
+  idle: "#8E99A6",
+};
+
 const HQ = { x: 40, y: 21 };
 const MARINA = { x: 34, y: 22, w: 13, h: 8 };
 
@@ -179,6 +204,7 @@ function hashString(input) {
 function statusClass(status) {
   if (status === "working") return "status-working";
   if (status === "error") return "status-error";
+  if (status === "blocked") return "status-error";
   if (status === "done") return "status-done";
   return "status-idle";
 }
@@ -224,11 +250,91 @@ function districtLabel(district) {
 
 function prettyState(status, run) {
   if (!run) return "Waiting";
+  if (status === "blocked") return "Blocked";
   if (run.stuckScore > 0.7 || run.failureStreak >= 2) return "Scolded";
   if (status === "working") return "Doing task";
   if (status === "done") return "Done";
   if (status === "error") return "Error";
   return "Idle";
+}
+
+function phaseStreetLabel(phaseId) {
+  const lane = PHASE_LANES.find((item) => item.id === phaseId);
+  return lane?.street || "Execution Street";
+}
+
+function inferPhaseFromText(text) {
+  const value = String(text || "").toLowerCase();
+  if (!value) return null;
+  if (/\b(plan|planning|scope|design|investigate|analysis|research)\b/.test(value)) return "plan";
+  if (/\b(verify|verification|test|assert|qa|validate|check)\b/.test(value)) return "verify";
+  if (/\b(report|summary|summarize|writeup|narrative|explain|handoff)\b/.test(value)) return "report";
+  if (/\b(approval|approve|review|signoff|sign-off|permission|gate)\b/.test(value)) return "approval";
+  if (/\b(execute|implement|patch|edit|build|run|code|fix)\b/.test(value)) return "execute";
+  return null;
+}
+
+function inferPhaseForDerived(derived) {
+  const parts = [derived.rawType, derived.message, derived.toolName, derived.filePath].filter(Boolean).join(" ");
+  return inferPhaseFromText(parts) || "execute";
+}
+
+function inferBlockedFromDerived(derived) {
+  const text = `${derived.rawType || ""} ${derived.message || ""}`.toLowerCase();
+  return /(blocked|waiting for approval|awaiting approval|awaiting user|needs user input|human input|on hold)/.test(
+    text
+  );
+}
+
+function inferNeedsAttentionSeverity(run) {
+  if (!run) return "none";
+  if (run.status === "blocked" || run.blocked || run.stuckScore >= 0.85) return "critical";
+  if (run.status === "error" || run.stuckScore > 0.7 || run.failureStreak >= 2) return "warn";
+  if (run.status === "idle" && nowMs() - (run.lastTs || run.createdAt) > WAITING_WINDOW_MS) return "info";
+  return "none";
+}
+
+function isRunInCulDeSac(run) {
+  const severity = inferNeedsAttentionSeverity(run);
+  return run.status === "blocked" || Boolean(run.blocked) || (ATTENTION_RANK[severity] || 0) >= ATTENTION_RANK.warn;
+}
+
+function isHumanInterventionReason(text) {
+  const value = String(text || "").toLowerCase();
+  return /(awaiting approval|needs user input|human input|awaiting user|waiting for user|needs human|manual approval)/.test(
+    value
+  );
+}
+
+function classifyVisualState(run) {
+  if (!run) return "idle";
+  if (run.status === "error") return "failed";
+  if (run.status === "blocked") return "blocked";
+
+  const blockedReason = run.blockedReason || "";
+  const severity = run.needsAttentionSeverity || inferNeedsAttentionSeverity(run);
+  if (run.blocked && isHumanInterventionReason(blockedReason)) return "needs-human";
+  if (
+    (severity === "warn" || severity === "critical") &&
+    isHumanInterventionReason(blockedReason || run.intervention || "")
+  ) {
+    return "needs-human";
+  }
+
+  if (run.status === "working") return "active";
+  if (run.status === "done") return "done";
+
+  if (run.status === "idle") {
+    const lastEventAt = run.lastTs || run.createdAt || 0;
+    if (nowMs() - lastEventAt <= WAITING_WINDOW_MS) return "waiting";
+    return "idle";
+  }
+
+  return "idle";
+}
+
+function shirtColorForRun(run) {
+  return VISUAL_STATE_COLORS[classifyVisualState(run)] || VISUAL_STATE_COLORS.idle;
 }
 
 function tileToPx(col, row) {
@@ -332,6 +438,10 @@ function createRun({ runId, agentId, label, laneName, manual = false, simulated 
     manual,
     simulated,
     status: "idle",
+    currentPhase: "execute",
+    blocked: false,
+    blockedReason: "",
+    needsAttentionSeverity: "none",
     createdAt: nowMs(),
     firstTs: null,
     lastTs: null,
@@ -469,6 +579,7 @@ function applyDerivedEvent(run, derived, options = {}) {
   const ts = derived.ts || nowMs();
   const rawType = derived.rawType || "unknown";
   const text = `${rawType} ${derived.message || ""}`.toLowerCase();
+  run.currentPhase = inferPhaseForDerived(derived);
 
   if (run.firstTs === null) run.firstTs = ts;
   run.lastTs = Math.max(run.lastTs || 0, ts);
@@ -495,6 +606,8 @@ function applyDerivedEvent(run, derived, options = {}) {
     if (run.toolTimes.length >= 6) {
       rotateLine(run, "mrt", MRT_LINES, 4000);
     }
+    run.blocked = false;
+    run.blockedReason = "";
   }
 
   if (derived.kind === "file.changed" && derived.filePath) {
@@ -525,6 +638,8 @@ function applyDerivedEvent(run, derived, options = {}) {
     slotState.level = Math.max(slotState.level, levelFromTouches(previous.touches));
     slotState.filePath = derived.filePath;
     slotMap.set(slotIndex, slotState);
+    run.blocked = false;
+    run.blockedReason = "";
   }
 
   if (derived.kind === "error") {
@@ -558,6 +673,8 @@ function applyDerivedEvent(run, derived, options = {}) {
     if (transient) {
       spawnFireworks(run);
     }
+    run.blocked = false;
+    run.blockedReason = "";
   }
 
   if (derived.kind === "note") {
@@ -568,6 +685,12 @@ function applyDerivedEvent(run, derived, options = {}) {
     if (String(derived.message || "").includes("0")) {
       run.status = "done";
     }
+  }
+
+  if (inferBlockedFromDerived(derived)) {
+    run.blocked = true;
+    run.blockedReason = derived.message || rawType;
+    run.status = "blocked";
   }
 }
 
@@ -611,6 +734,8 @@ function evaluateStuck(run, clock = nowMs()) {
     run.stuckReason = "";
     run.intervention = "No intervention needed yet.";
   }
+
+  run.needsAttentionSeverity = inferNeedsAttentionSeverity(run);
 }
 
 function summariseEvent(derivedEvents) {
@@ -1104,21 +1229,30 @@ function drawText(target, text, x, y, color = "#f4f0de", size = 12) {
   target.fillText(text, Math.round(x), Math.round(y));
 }
 
-function drawCharacter(target, x, y, palette = 0, scale = 2, frameCol = 1, frameRow = 0) {
+function drawCharacter(target, x, y, palette = 0, scale = 2, frameCol = 1, frameRow = 0, shirtColor = null) {
   const atlas = CHARACTER_ATLASES[palette % CHARACTER_ATLASES.length];
   const drawW = 16 * scale;
   const drawH = 32 * scale;
+  const drawLeft = Math.round(x - drawW / 2);
+  const drawTop = Math.round(y - drawH);
 
   if (atlas && atlas.complete && atlas.naturalWidth > 0) {
     const sx = frameCol * 16;
     const sy = frameRow * 32;
-    target.drawImage(atlas, sx, sy, 16, 32, Math.round(x - drawW / 2), Math.round(y - drawH), drawW, drawH);
+    target.drawImage(atlas, sx, sy, 16, 32, drawLeft, drawTop, drawW, drawH);
+    if (shirtColor) {
+      target.save();
+      target.globalCompositeOperation = "source-atop";
+      target.fillStyle = shirtColor;
+      target.fillRect(drawLeft + Math.round(3 * scale), drawTop + Math.round(10 * scale), Math.round(10 * scale), Math.round(9 * scale));
+      target.restore();
+    }
     return;
   }
 
   // Fallback block sprite while atlas is loading.
   drawPx(target, x - 8, y - 20, 16, 8, "#f2c4a8");
-  drawPx(target, x - 9, y - 12, 18, 12, "#5c8ecf");
+  drawPx(target, x - 9, y - 12, 18, 12, shirtColor || "#5c8ecf");
   drawPx(target, x - 8, y, 6, 8, "#30495f");
   drawPx(target, x + 2, y, 6, 8, "#30495f");
 }
@@ -1154,284 +1288,162 @@ function buildStaticLayer() {
   const c = layer.getContext("2d");
   c.imageSmoothingEnabled = false;
 
-  drawPx(c, 0, 0, WORLD.width, WORLD.height, "#0f1e2d");
-  drawPx(c, 0, 0, WORLD.width, 190, "#2a4560");
-  drawPx(c, 0, 190, WORLD.width, 80, "#375a7a");
-  drawPx(c, 0, 270, WORLD.width, WORLD.height - 270, "#1e3b56");
+  drawPx(c, 0, 0, WORLD.width, WORLD.height, "#12283e");
+  drawPx(c, 0, 0, WORLD.width, 64, "#1f3f5c");
 
-  // City skyline windows.
-  for (let i = 0; i < 38; i += 1) {
-    const x = 14 + i * 33;
-    const h = 36 + ((i * 23) % 100);
-    drawPx(c, x, 178 - h, 20, h, i % 2 === 0 ? "#1f354a" : "#26435f");
-    drawPx(c, x + 4, 178 - h + 8, 2, 2, "#9dd6ff");
-    drawPx(c, x + 9, 178 - h + 16, 2, 2, "#9dd6ff");
-    drawPx(c, x + 14, 178 - h + 28, 2, 2, "#9dd6ff");
-  }
+  drawText(c, "Phase Streets Map", 24, 28, "#eef7e3", 15);
+  drawText(c, "Main Road = Active flow | Cul-de-Sac = Blocked / Warn+", 24, 48, "#c5dcf3", 10);
 
-  // Corridor and lobby strip.
-  drawPx(c, 32, 208, WORLD.width - 64, 38, "#d4cbbb");
-  for (let x = 32; x < WORLD.width - 32; x += 22) {
-    drawPx(c, x, 227, 13, 1, "rgba(0,0,0,0.12)");
-  }
+  const margin = 20;
+  const top = 68;
+  const laneGap = 8;
+  const laneWidth = Math.floor((WORLD.width - margin * 2 - laneGap * (PHASE_LANES.length - 1)) / PHASE_LANES.length);
+  const laneHeight = WORLD.height - top - margin;
+  const signHeight = 102;
 
-  for (const [name, district] of Object.entries(DISTRICTS)) {
-    drawDistrictRoom(c, name, district);
-  }
+  PHASE_LANES.forEach((lane, index) => {
+    const laneX = margin + index * (laneWidth + laneGap);
+    const laneY = top;
+    const laneW = laneWidth;
+    const laneH = laneHeight;
+    const sectionGap = 6;
+    const sectionsY = laneY + signHeight + 6;
+    const sectionsH = laneH - signHeight - 12;
+    const sectionH = Math.floor((sectionsH - sectionGap) / 2);
+    const roadX = laneX + 6;
+    const roadW = laneW - 12;
+    const mainY = sectionsY;
+    const culY = mainY + sectionH + sectionGap;
 
-  drawMerlion(c);
+    drawPx(c, laneX, laneY, laneW, laneH, "#20394f");
+    drawPx(c, laneX + 2, laneY + 2, laneW - 4, laneH - 4, "#173145");
+
+    drawPx(c, laneX + 6, laneY + 6, laneW - 12, signHeight, "#112638");
+    drawPx(c, laneX + 8, laneY + 8, laneW - 16, 4, lane.accent);
+    drawText(c, lane.street, laneX + 14, laneY + 30, "#f4f0de", 11);
+    drawText(c, `phase = ${lane.id}`, laneX + 14, laneY + 48, "#d0dff4", 9);
+    drawText(c, "Street Sign", laneX + 14, laneY + 66, "#9ec1de", 8);
+
+    drawPx(c, roadX, mainY, roadW, sectionH, "#26465b");
+    drawPx(c, roadX + 2, mainY + 2, roadW - 4, sectionH - 4, hexToRgba(lane.color, 0.36));
+    drawText(c, "Main Road", roadX + 8, mainY + 18, "#fbf4dc", 10);
+    drawText(c, "(Active pixel agents)", roadX + 8, mainY + 32, "#f8ebc7", 8);
+
+    drawPx(c, roadX, culY, roadW, sectionH, "#2f2f35");
+    drawPx(c, roadX + 2, culY + 2, roadW - 4, sectionH - 4, "rgba(140, 104, 93, 0.35)");
+    drawText(c, "Cul-de-Sac", roadX + 8, culY + 18, "#ffe5d5", 10);
+    drawText(c, "(Stalled pixel agents)", roadX + 8, culY + 32, "#ffd0c1", 8);
+  });
 
   return layer;
 }
 
-function drawDistrictRoom(target, name, district) {
-  const px = district.x * WORLD.tile;
-  const py = district.y * WORLD.tile;
-  const w = district.w * WORLD.tile;
-  const h = district.h * WORLD.tile;
-
-  drawPx(target, px, py, w, h, "#22384e");
-  drawPx(target, px + 4, py + 4, w - 8, h - 8, district.color);
-
-  // Floor tiles.
-  for (let y = py + 6; y < py + h - 8; y += 14) {
-    for (let x = px + 6; x < px + w - 8; x += 14) {
-      drawPx(target, x, y, 11, 11, "rgba(255,255,255,0.06)");
-    }
-  }
-
-  // Walls.
-  drawPx(target, px, py, w, 4, district.glow);
-  drawPx(target, px, py + h - 4, w, 4, district.glow);
-  drawPx(target, px, py, 4, h, district.glow);
-  drawPx(target, px + w - 4, py, 4, h, district.glow);
-
-  // Furniture for the pixel-agents office vibe.
-  drawDesk(target, px + 18, py + 22, "#9a6e2f");
-  drawDesk(target, px + w - 56, py + 22, "#9a6e2f");
-  drawDesk(target, px + 18, py + h - 44, "#865e26");
-  drawDesk(target, px + w - 56, py + h - 44, "#865e26");
-  drawBookshelf(target, px + 10, py + 8);
-  drawBookshelf(target, px + w - 42, py + 8);
-  drawPlant(target, px + 8, py + h - 24);
-  drawPlant(target, px + w - 22, py + h - 24);
-
-  drawText(target, districtLabel(name), px + 8, py + 18, "#f8f3df", 13);
-  drawText(target, districtMeaning(name), px + 8, py + 32, "#fff1c8", 9);
+function phaseLaneGeometry(index) {
+  const margin = 20;
+  const top = 68;
+  const laneGap = 8;
+  const laneWidth = Math.floor((WORLD.width - margin * 2 - laneGap * (PHASE_LANES.length - 1)) / PHASE_LANES.length);
+  const laneX = margin + index * (laneWidth + laneGap);
+  const laneY = top;
+  const laneH = WORLD.height - top - margin;
+  const signHeight = 102;
+  const sectionGap = 6;
+  const sectionsY = laneY + signHeight + 6;
+  const sectionsH = laneH - signHeight - 12;
+  const sectionH = Math.floor((sectionsH - sectionGap) / 2);
+  const roadX = laneX + 6;
+  const roadW = laneWidth - 12;
+  const main = { x: roadX, y: sectionsY, w: roadW, h: sectionH };
+  const cul = { x: roadX, y: sectionsY + sectionH + sectionGap, w: roadW, h: sectionH };
+  return { main, cul };
 }
 
-function drawMerlion(target) {
-  const base = tileToPx(HQ.x, HQ.y);
-  const x = base.x - 16;
-  const y = base.y - 26;
+function drawAgentChip(target, run, rect, slotIndex, selectedRunId) {
+  const cellW = 84;
+  const cellH = 44;
+  const maxCols = Math.max(1, Math.floor((rect.w - 16) / cellW));
+  const col = slotIndex % maxCols;
+  const row = Math.floor(slotIndex / maxCols);
+  const x = rect.x + 14 + col * cellW;
+  const y = rect.y + 28 + row * cellH;
+  if (y > rect.y + rect.h - 10) return false;
 
-  drawPx(target, x + 4, y + 34, 30, 14, "#8e6e4a");
-  drawPx(target, x + 8, y + 16, 20, 20, "#dbe8f2");
-  drawPx(target, x + 10, y + 6, 16, 12, "#e7f0f8");
-  drawPx(target, x + 20, y + 10, 8, 4, "#8fd0ff");
-  drawPx(target, x + 27, y + 11, 9, 3, "#6ec2ff");
-  drawPx(target, x + 12, y + 40, 12, 4, "#745234");
-
-  drawText(target, "MAIN AGENT", x - 10, y + 56, "#ffe7bd", 10);
-  drawText(target, "MERLION HQ", x - 10, y + 68, "#bfe6ff", 9);
-}
-
-function drawMrtTrack(target) {
-  const y = 210;
-  drawPx(target, 24, y, WORLD.width - 48, 4, "#7d6c52");
-  for (let x = 24; x < WORLD.width - 24; x += 18) {
-    drawPx(target, x, y + 4, 5, 2, "#b39f81");
-  }
-}
-
-function drawWaterShimmer(target, timeSec) {
-  const baseX = MARINA.x * WORLD.tile;
-  const baseY = MARINA.y * WORLD.tile;
-  const width = MARINA.w * WORLD.tile;
-  const rows = 5;
-
-  for (let i = 0; i < rows; i += 1) {
-    const y = baseY + 8 + i * 10;
-    const offset = Math.floor((timeSec * 16 + i * 5) % 20);
-    drawPx(target, baseX + offset, y, width - 20, 1, "rgba(188, 238, 255, 0.35)");
-  }
-}
-
-function drawDistrictBuildings(target, run) {
-  for (const [district, slots] of Object.entries(DISTRICT_SLOTS)) {
-    const slotMap = run?.slotStats?.[district] || new Map();
-    let activeCount = 0;
-
-    for (const slot of slots) {
-      const slotState = slotMap.get(slot.index);
-      if (!slotState) continue;
-      const level = slotState.level;
-      activeCount += 1;
-
-      const px = slot.col * WORLD.tile;
-      const py = slot.row * WORLD.tile;
-      const height = level === 1 ? 18 : level === 2 ? 26 : 36;
-      const color =
-        district === "Bugis"
-          ? "#95f0bf"
-          : district === "Jurong"
-            ? "#ffc38b"
-              : district === "Changi"
-              ? "#c3e7ff"
-              : "#a9d3ff";
-
-      drawPx(target, px, py + (16 - height), 16, height, color);
-      drawPx(target, px + 2, py + (18 - height), 12, 3, "rgba(0,0,0,0.22)");
-      drawPx(target, px + 4, py + (14 - height), 8, 6, "#5d6e83");
-      if (level >= 2) {
-        drawPx(target, px + 5, py + (13 - height), 2, 2, "#fff6b8");
-        drawPx(target, px + 9, py + (13 - height), 2, 2, "#fff6b8");
-      }
-      if (level >= 3) {
-        drawPx(target, px + 3, py + (6 - height), 10, 2, "#fff0aa");
-        drawPx(target, px + 6, py + (4 - height), 4, 2, "#fff0aa");
-      }
-    }
-
-    const room = DISTRICTS[district];
-    const roomPx = room.x * WORLD.tile;
-    const roomPy = room.y * WORLD.tile;
-    drawText(target, `${activeCount} touched`, roomPx + 10, roomPy + 34, "#fff3cf", 10);
-  }
-}
-
-function drawVehicles(target, run) {
-  for (const vehicle of run.vehicles) {
-    drawPx(target, vehicle.x - 14, vehicle.y - 8, 28, 14, vehicle.color);
-    drawPx(target, vehicle.x - 10, vehicle.y - 5, 12, 6, "#21384c");
-    drawPx(target, vehicle.x - 10, vehicle.y + 6, 5, 3, "#1f2123");
-    drawPx(target, vehicle.x + 5, vehicle.y + 6, 5, 3, "#1f2123");
-    if (vehicle.toolName) {
-      drawText(target, vehicle.toolName.slice(0, 5), vehicle.x - 12, vehicle.y - 11, "#fff4d7", 8);
-    }
-  }
-}
-
-function drawEffects(target, run) {
-  for (const effect of run.effects) {
-    const progress = clamp(effect.age / effect.ttl, 0, 1);
-
-    if (effect.type === "beacon") {
-      const size = 8 + Math.floor(progress * 16);
-      const alpha = 1 - progress;
-      target.strokeStyle = `rgba(255, 89, 89, ${alpha.toFixed(3)})`;
-      target.lineWidth = 2;
-      target.strokeRect(effect.x - size / 2, effect.y - size / 2, size, size);
-      drawPx(target, effect.x - 3, effect.y - 3, 6, 6, "#ff7575");
-    }
-
-    if (effect.type === "smoke") {
-      const alpha = 1 - progress;
-      drawPx(target, effect.x, effect.y, effect.size, effect.size, `rgba(190, 190, 190, ${alpha.toFixed(3)})`);
-    }
-
-    if (effect.type === "firework") {
-      for (const particle of effect.particles) {
-        const lifeP = clamp(particle.life / particle.ttl, 0, 1);
-        if (lifeP >= 1) continue;
-        const alpha = 1 - lifeP;
-        drawPx(target, particle.x, particle.y, 2, 2, hexToRgba(particle.color, alpha.toFixed(3)));
-      }
-    }
-  }
-}
-
-function drawNpc(target, npcData, runtimeState) {
-  const px = npcData.x * WORLD.tile;
-  const py = npcData.y * WORLD.tile;
-
-  drawCharacter(target, px + 12, py + 26, hashString(npcData.label), 2, 1, 0);
-
-  drawText(target, npcData.label, px - 18, py + 34, "#f5e6c8", 9);
-
-  if (!runtimeState.text) return;
-
-  const text = runtimeState.text;
-  const width = Math.max(130, text.length * 7 + 14);
-  const bx = px + 18;
-  const by = py - 20;
-
-  drawPx(target, bx, by, width, 24, "rgba(10, 18, 26, 0.9)");
-  drawPx(target, bx + 2, by + 2, width - 4, 20, "rgba(240, 242, 220, 0.16)");
-  drawPx(target, bx - 2, by + 12, 4, 4, "rgba(10, 18, 26, 0.9)");
-  drawText(target, text, bx + 6, by + 16, "#f9f2d4", 11);
-}
-
-function drawHighlight(target, run) {
-  if (!run?.highlight) return;
-
-  const district = run.highlight.district;
-  if (district && DISTRICTS[district]) {
-    const d = DISTRICTS[district];
-    target.strokeStyle = "#ffe28f";
-    target.lineWidth = 2;
-    target.strokeRect(d.x * WORLD.tile, d.y * WORLD.tile, d.w * WORLD.tile, d.h * WORLD.tile);
-  }
-
-  if (run.highlight.filePath && run.fileStats.has(run.highlight.filePath)) {
-    const fileInfo = run.fileStats.get(run.highlight.filePath);
-    const slot = DISTRICT_SLOTS[fileInfo.district][fileInfo.slotIndex];
-    const x = slot.col * WORLD.tile;
-    const y = slot.row * WORLD.tile;
-    drawPx(target, x - 1, y - 1, 14, 14, "rgba(255, 226, 143, 0.4)");
-  }
-}
-
-function drawHaze(target, run) {
-  if (!run || run.stuckScore <= 0.7) return;
-
-  const alpha = clamp((run.stuckScore - 0.7) * 1.2, 0.05, 0.3);
-  drawPx(target, 0, 0, WORLD.width, WORLD.height, `rgba(120, 120, 110, ${alpha.toFixed(3)})`);
-
-  const signX = HQ.x * WORLD.tile + 60;
-  const signY = HQ.y * WORLD.tile + 16;
-  drawPx(target, signX, signY, 112, 20, "rgba(117, 62, 35, 0.9)");
-  drawPx(target, signX + 4, signY + 4, 104, 12, "rgba(225, 185, 122, 0.95)");
-  drawText(target, "CONSTRUCTION STALLED", signX + 6, signY + 13, "#2f1a0d", 9);
-}
-
-function drawMainAgent(target, run) {
-  const base = tileToPx(HQ.x, HQ.y);
-  const px = base.x + 8;
-  const py = base.y + 34;
-  drawCharacter(target, px, py, hashString(run.runId), 3, 1, 0);
-
-  const tagText =
-    run.status === "error"
-      ? "SCOLDED"
+  const severity = run.needsAttentionSeverity || inferNeedsAttentionSeverity(run);
+  const shirtColor = shirtColorForRun(run);
+  const isSelected = run.runId === selectedRunId;
+  const isBlocked = run.status === "blocked" || Boolean(run.blocked);
+  const statusColor =
+    run.status === "blocked"
+      ? "#b84848"
+      : run.status === "error"
+      ? "#cb5b5b"
       : run.status === "working"
-        ? "WORKING"
+        ? "#e1b565"
         : run.status === "done"
-          ? "DONE"
-          : "IDLE";
+          ? "#7ed09b"
+          : "#8ab0cc";
 
-  const bg = run.status === "error" ? "#802323" : run.status === "working" ? "#6e5a1f" : "#204355";
-  drawPx(target, px - 36, py - 76, 72, 14, bg);
-  drawPx(target, px - 34, py - 74, 68, 10, "rgba(255,255,255,0.15)");
-  drawText(target, `AGENT ${tagText}`, px - 31, py - 66, "#fdf3d9", 9);
+  if (isSelected) {
+    drawPx(target, x - 20, y - 32, 70, 40, "rgba(255, 226, 143, 0.28)");
+  }
+
+  drawCharacter(target, x + 12, y + 8, hashString(run.runId), 2, 1, 0, shirtColor);
+  drawPx(target, x + 28, y - 20, 38, 8, statusColor);
+  drawText(target, run.status.toUpperCase().slice(0, 6), x + 30, y - 13, "#182028", 8);
+
+  const label = run.label.replace(/^codex:/, "").slice(0, 11);
+  drawText(target, label, x - 12, y + 18, "#f5f3e4", 8);
+
+  if (isBlocked) {
+    drawPx(target, x + 28, y - 9, 32, 7, "#a44a4a");
+    drawText(target, "BLOCK", x + 30, y - 3, "#ffe7e7", 7);
+  } else if ((ATTENTION_RANK[severity] || 0) >= ATTENTION_RANK.warn) {
+    drawPx(target, x + 28, y - 9, 32, 7, "#b7853e");
+    drawText(target, "WARN", x + 31, y - 3, "#fff4df", 7);
+  }
+
+  return true;
+}
+
+function drawPhaseMap(target, runs, selectedRunId) {
+  const grouped = new Map(PHASE_LANES.map((lane) => [lane.id, { main: [], cul: [] }]));
+
+  for (const run of runs) {
+    const phase = PHASE_LANES.some((lane) => lane.id === run.currentPhase) ? run.currentPhase : "execute";
+    const bucket = grouped.get(phase);
+    if (!bucket) continue;
+    if (isRunInCulDeSac(run)) bucket.cul.push(run);
+    else bucket.main.push(run);
+  }
+
+  for (const lane of PHASE_LANES) {
+    const geom = phaseLaneGeometry(PHASE_LANES.findIndex((item) => item.id === lane.id));
+    const bucket = grouped.get(lane.id) || { main: [], cul: [] };
+
+    bucket.main.sort((a, b) => (b.lastTs || b.createdAt) - (a.lastTs || a.createdAt));
+    bucket.cul.sort((a, b) => (b.lastTs || b.createdAt) - (a.lastTs || a.createdAt));
+
+    let mainPlaced = 0;
+    for (let i = 0; i < bucket.main.length; i += 1) {
+      const placed = drawAgentChip(target, bucket.main[i], geom.main, i, selectedRunId);
+      if (placed) mainPlaced += 1;
+    }
+
+    let culPlaced = 0;
+    for (let i = 0; i < bucket.cul.length; i += 1) {
+      const placed = drawAgentChip(target, bucket.cul[i], geom.cul, i, selectedRunId);
+      if (placed) culPlaced += 1;
+    }
+
+    drawText(target, `${mainPlaced} active`, geom.main.x + geom.main.w - 84, geom.main.y + 18, "#e9f9e8", 8);
+    drawText(target, `${culPlaced} stalled`, geom.cul.x + geom.cul.w - 84, geom.cul.y + 18, "#ffe2d6", 8);
+  }
 }
 
 function drawRun(run, timeSec) {
   ctx.clearRect(0, 0, WORLD.width, WORLD.height);
   ctx.drawImage(staticLayer, 0, 0);
-  drawWaterShimmer(ctx, timeSec);
-
-  if (!run) return;
-
-  drawDistrictBuildings(ctx, run);
-  drawVehicles(ctx, run);
-  drawEffects(ctx, run);
-  drawNpc(ctx, NPCS.auntie, run.npcs.auntie);
-  drawNpc(ctx, NPCS.uncle, run.npcs.uncle);
-  drawNpc(ctx, NPCS.mrt, run.npcs.mrt);
-  drawMainAgent(ctx, run);
-  drawHighlight(ctx, run);
-  drawHaze(ctx, run);
+  drawPhaseMap(ctx, getMapRunsForView(), run?.runId || null);
 }
 
 function renderRunList() {
@@ -1476,6 +1488,26 @@ function getActiveRunForView() {
     return state.replay.previewRun;
   }
   return getSelectedRealRun();
+}
+
+function getMapRunsForView() {
+  const runs = [];
+  const replaySourceId = state.replay.active ? state.replay.sourceRunId : null;
+
+  for (const runId of state.runOrder) {
+    if (runId === replaySourceId && state.replay.previewRun) {
+      runs.push(state.replay.previewRun);
+      continue;
+    }
+    const run = state.runs.get(runId);
+    if (run) runs.push(run);
+  }
+
+  if (runs.length === 0 && state.replay.previewRun) {
+    runs.push(state.replay.previewRun);
+  }
+
+  return runs;
 }
 
 function selectedTimelineRecord(run) {
@@ -1614,10 +1646,13 @@ function buildStoryForRun(run) {
   const latestType = latest ? latest.rawType : "none";
   const latestDistrict = latest ? latest.district : "CBD";
   const latestDistrictLabel = districtLabel(latestDistrict);
+  const latestPhase = run.currentPhase || "execute";
+  const latestStreet = phaseStreetLabel(latestPhase);
   const latestFile = latest?.filePath || "none";
 
   const sharedReasons = [
     `Latest event: ${latestType} (${latestSummary})`,
+    `Current phase: ${latestPhase} on ${latestStreet}`,
     `Current area: ${latestDistrictLabel} (${districtMeaning(latestDistrict)})`,
     `Current file: ${latestFile}`,
     `Last file change: ${ageText(run.lastFileChangeAt)}`,
@@ -1719,7 +1754,7 @@ function renderCaptionBar() {
   if (!run) {
     captionModeEl.textContent = `Mode: ${mode}`;
     captionLaneEl.textContent = "Lorong: Waiting";
-    captionAreaEl.textContent = "Area: Waiting";
+    captionAreaEl.textContent = "Street: Waiting";
     captionStateEl.textContent = "State: Waiting";
     captionStepEl.textContent = "Current step: Waiting for first event.";
     captionFileEl.textContent = "Current file: none";
@@ -1727,14 +1762,14 @@ function renderCaptionBar() {
   }
 
   const latest = run.timeline[run.timeline.length - 1] || null;
-  const latestDistrict = latest?.district || "CBD";
-  const latestDistrictLabel = districtLabel(latestDistrict);
+  const phase = run.currentPhase || "execute";
+  const street = phaseStreetLabel(phase);
   const latestFile = latest?.filePath || "none";
   const latestSummary = latest?.summary || "No event captured yet";
 
   captionModeEl.textContent = `Mode: ${mode}`;
   captionLaneEl.textContent = `Lorong: ${run.laneName}`;
-  captionAreaEl.textContent = `Area: ${latestDistrictLabel} (${districtMeaning(latestDistrict)})`;
+  captionAreaEl.textContent = `Street: ${street} (phase=${phase})`;
   captionStateEl.textContent = `State: ${prettyState(run.status, run)}`;
   captionStepEl.textContent = `Current step: ${latestSummary}`;
   captionFileEl.textContent = `Current file: ${latestFile}`;
