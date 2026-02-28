@@ -617,7 +617,7 @@ function inferPhaseFromText(text) {
 
 function inferPhaseForDerived(derived) {
   const parts = [derived.rawType, derived.message, derived.toolName, derived.filePath].filter(Boolean).join(" ");
-  return inferPhaseFromText(parts) || "execute";
+  return inferPhaseFromText(parts);
 }
 
 function isCriticalPhaseChangeEvent(derived) {
@@ -753,6 +753,16 @@ function pickRunForRawEvent(rawEvent, forceRunId = null) {
     agentId: state.activeManualRunId ? `codex:${state.activeManualRunId}` : "codex:main",
     label: state.activeManualRunId ? `codex:${state.activeManualRunId}` : "codex:main",
   });
+}
+
+function phaseFromLaneValue(value) {
+  const lane = String(value || "").toLowerCase();
+  if (!lane) return null;
+  if (lane.includes("plan")) return "plan";
+  if (lane.includes("verif")) return "verify";
+  if (lane.includes("report")) return "report";
+  if (lane.includes("exec")) return "execute";
+  return null;
 }
 
 function addTimelineRecord(run, rawEvent, derivedEvents) {
@@ -983,6 +993,11 @@ function ingestRawEvent(rawEvent, options = {}) {
     return;
   }
   const run = pickRunForRawEvent(rawEvent, options.forceRunId || null);
+  const lanePhase = phaseFromLaneValue(rawEvent?.lane || rawEvent?.params?.lane || rawEvent?.params?.item?.lane);
+  if (lanePhase) {
+    run.currentPhase = lanePhase;
+    run.lastPhaseChangeAt = getRawEventTimestamp(rawEvent) || nowMs();
+  }
   integrateDerivedSet(run, rawEvent, derivedEvents, { skipPersistence: options.skipPersistence === true });
   updateAnnouncementFromDerived(derivedEvents, run);
   if (!state.selectedRunId) state.selectedRunId = run.runId;
@@ -2452,8 +2467,26 @@ function phaseMessage(phase, cycle) {
   return `execution step ${cycle + 1}: applying code update`;
 }
 
+function clearDemoLaneRuns() {
+  const removed = new Set();
+  for (const runId of state.runOrder) {
+    if (!runId.startsWith("explicit:sim-lane-")) continue;
+    removed.add(runId);
+    state.runs.delete(runId);
+  }
+  if (removed.size === 0) return;
+  state.runOrder = state.runOrder.filter((runId) => !removed.has(runId));
+  if (state.selectedRunId && removed.has(state.selectedRunId)) {
+    state.selectedRunId = state.runOrder[0] || null;
+    state.ui.selectedAgentRunId = state.selectedRunId;
+  }
+}
+
 function runSwimlaneDemo() {
   clearSimulatorTimers();
+  stopReplay();
+  clearDemoLaneRuns();
+  setOpsDrawerOpen(false);
   setAgentDrawerOpen(false);
   setDemoScriptBanner("Step 1: Agents fan out across plan/execute/verify/report lanes.", true);
 
@@ -2474,12 +2507,24 @@ function runSwimlaneDemo() {
 
   let cycle = 0;
   const timer = window.setInterval(() => {
+    const now = nowMs();
+
     for (const [runId, holdReason] of interventionState.holds.entries()) {
       const explicitRunId = `explicit:${sanitizeRunIdentity(runId)}`;
       const run = state.runs.get(explicitRunId);
       const released = Boolean(run && !run.requiresHumanGate && !run.blocked);
       if (!released) continue;
       interventionState.holds.delete(runId);
+      ingestRawEvent({ type: "turn.started", run_id: runId, lane: laneNameForPhase(run.currentPhase), ts: now, message: "approval received, resuming work" });
+      ingestRawEvent({
+        type: "tool.run",
+        run_id: runId,
+        lane: laneNameForPhase(run.currentPhase),
+        ts: now + 1,
+        tool: run.currentPhase === "verify" ? "Bash" : "Edit",
+        message: "resumed after manual approval",
+      });
+      ingestRawEvent({ type: "turn.completed", run_id: runId, lane: laneNameForPhase(run.currentPhase), ts: now + 2, message: "resumed step completed" });
       if (!interventionState.recoveriesShown.has(runId)) {
         interventionState.recoveriesShown.add(runId);
         const recoveryText =
@@ -2491,139 +2536,137 @@ function runSwimlaneDemo() {
     }
 
     if (cycle >= DEMO_SWIMLANE_CYCLES) {
-      clearInterval(timer);
       const pending = interventionState.holds.size;
       if (pending > 0) {
         setDemoScriptBanner(`Demo paused: ${pending} agent${pending > 1 ? "s" : ""} waiting for manual approval.`, true);
-      } else {
-        setDemoScriptBanner("Demo complete: interventions resolved and agents finished.", true);
+        for (const [runId] of interventionState.holds.entries()) {
+          const explicitRunId = `explicit:${sanitizeRunIdentity(runId)}`;
+          const run = state.runs.get(explicitRunId);
+          if (!run) continue;
+          ingestRawEvent(
+            {
+              type: "note",
+              run_id: runId,
+              lane: laneNameForPhase(run.currentPhase),
+              ts: now + 3,
+              message: "Still waiting for manual approval to continue.",
+            },
+            { forceRunId: explicitRunId }
+          );
+        }
+        return;
       }
+      clearInterval(timer);
+      setDemoScriptBanner("Demo complete: interventions resolved and agents finished.", true);
       const hideTimer = window.setTimeout(() => {
-        if (interventionState.holds.size === 0) setDemoScriptBanner("", false);
+        setDemoScriptBanner("", false);
         clearTimeout(hideTimer);
       }, 3200);
       return;
     }
 
-    const primary = demoAgents[cycle % demoAgents.length];
-    const secondary = demoAgents[(cycle + 2) % demoAgents.length];
-    const candidates = cycle % 3 === 0 ? [primary, secondary] : [primary];
-    const activeAgents = candidates.filter((agent) => !interventionState.holds.has(agent.id));
-
-    for (const agent of activeAgents) {
-      const runId = agent.id;
-      const base = {
-        run_id: runId,
-        lane: laneNameForPhase(agent.phase),
-      };
-      let needsManualIntervention = false;
-
-      ingestRawEvent({
-        ...base,
-        type: "turn.started",
-        ts: nowMs(),
-        message: phaseMessage(agent.phase, cycle),
-      });
-
-      ingestRawEvent({
-        ...base,
-        type: "tool.run",
-        ts: nowMs() + 1,
-        tool: agent.phase === "verify" ? "Bash" : "Edit",
-        message:
-          agent.phase === "plan"
-            ? `planning note ${cycle + 1}`
-            : agent.phase === "verify"
-              ? `verify test pass ${cycle + 1}`
-              : agent.phase === "report"
-                ? `report update ${cycle + 1}`
-                : `execute patch ${cycle + 1}`,
-        path:
-          agent.phase === "plan"
-            ? "docs/plan.md"
-            : agent.phase === "verify"
-              ? "tests/integration/ws.test.ts"
-              : agent.phase === "report"
-                ? "docs/status.md"
-                : "src/app.ts",
-      });
-
-      if (agent.phase !== "plan") {
-        ingestRawEvent({
-          ...base,
-          type: "file.changed",
-          ts: nowMs() + 2,
-          message: `${agent.phase} file updated`,
-          path:
-            agent.phase === "verify"
-              ? "tests/integration/ws.test.ts"
-              : agent.phase === "report"
-                ? "docs/status.md"
-                : "src/app.ts",
-        });
-      }
-
-      const stallTriggerId = `${agent.id}:stall`;
-      const approvalTriggerId = `${agent.id}:approval`;
-
-      if (cycle >= 2 && agent.id === "sim-lane-verify-1" && !interventionState.triggered.has(stallTriggerId)) {
-        interventionState.triggered.add(stallTriggerId);
-        needsManualIntervention = true;
-        setDemoScriptBanner("Step 2: Verification agent is in cul-de-sac. Click Approve next to unblock.", true);
-        interventionState.holds.set(runId, HOLD_STALL);
-        ingestRawEvent({
-          ...base,
-          type: "note",
-          ts: nowMs() + 3,
-          message: "Blocked waiting for flaky integration dependency. Awaiting user approval to retry.",
-        });
-        setApprovalStreetExpanded(true, { manual: false });
-      }
-
-      if (
-        ((cycle >= 8 && agent.id === "sim-lane-report-1") || (cycle >= 9 && agent.id === "sim-lane-exec-2")) &&
-        !interventionState.triggered.has(approvalTriggerId)
-      ) {
-        interventionState.triggered.add(approvalTriggerId);
-        needsManualIntervention = true;
-        setDemoScriptBanner("Step 3: Approval gate triggered. Use Approval Street to continue.", true);
-        interventionState.holds.set(runId, HOLD_APPROVAL);
-        ingestRawEvent({
-          ...base,
-          type: "note",
-          ts: nowMs() + 3,
-          message: "Awaiting user approval before applying risky change.",
-        });
-        setApprovalStreetExpanded(true, { manual: false });
-      }
-
-      if (!needsManualIntervention && (cycle === DEMO_SWIMLANE_CYCLES - 1 || cycle % 2 === 1)) {
-        if (cycle > 8) {
-          setDemoScriptBanner("Step 4: Agents recover and complete work after interventions.", true);
-        }
-        ingestRawEvent({
-          ...base,
-          type: "turn.completed",
-          ts: nowMs() + 3,
-          message: `${agent.phase} step completed`,
-        });
-      }
+    const active = demoAgents[cycle % demoAgents.length];
+    if (interventionState.holds.has(active.id)) {
+      cycle += 1;
+      return;
     }
 
-    for (const [runId] of interventionState.holds.entries()) {
-      const explicitRunId = `explicit:${sanitizeRunIdentity(runId)}`;
-      const run = state.runs.get(explicitRunId);
-      if (!run || cycle % 3 !== 0) continue;
-      ingestRawEvent(
-        {
-          type: "note",
-          run_id: runId,
-          lane: run.lane || laneNameForPhase(run.currentPhase),
-          ts: nowMs() + 4,
-          message: "Still waiting for manual approval to continue.",
-        },
-        { forceRunId: explicitRunId }
-      );
+    const runId = active.id;
+    const base = {
+      run_id: runId,
+      lane: laneNameForPhase(active.phase),
+    };
+    let needsManualIntervention = false;
+
+    ingestRawEvent({
+      ...base,
+      type: "turn.started",
+      ts: now,
+      message: phaseMessage(active.phase, cycle),
+    });
+
+    ingestRawEvent({
+      ...base,
+      type: "tool.run",
+      ts: now + 1,
+      tool: active.phase === "verify" ? "Bash" : "Edit",
+      message:
+        active.phase === "plan"
+          ? `planning note ${cycle + 1}`
+          : active.phase === "verify"
+            ? `verify test pass ${cycle + 1}`
+            : active.phase === "report"
+              ? `report update ${cycle + 1}`
+              : `execute patch ${cycle + 1}`,
+      path:
+        active.phase === "plan"
+          ? "docs/plan.md"
+          : active.phase === "verify"
+            ? "tests/integration/ws.test.ts"
+            : active.phase === "report"
+              ? "docs/status.md"
+              : "src/app.ts",
+    });
+
+    if (active.phase !== "plan" && cycle % 2 === 0) {
+      ingestRawEvent({
+        ...base,
+        type: "file.changed",
+        ts: now + 2,
+        message: `${active.phase} file updated`,
+        path:
+          active.phase === "verify"
+            ? "tests/integration/ws.test.ts"
+            : active.phase === "report"
+              ? "docs/status.md"
+              : "src/app.ts",
+      });
+    }
+
+    const stallTriggerId = `${active.id}:stall`;
+    const approvalTriggerId = `${active.id}:approval`;
+
+    if (cycle === 2 && active.id === "sim-lane-verify-1" && !interventionState.triggered.has(stallTriggerId)) {
+      interventionState.triggered.add(stallTriggerId);
+      needsManualIntervention = true;
+      setDemoScriptBanner("Step 2: Verification agent is in cul-de-sac. Click Approve next to unblock.", true);
+      interventionState.holds.set(runId, HOLD_STALL);
+      ingestRawEvent({
+        ...base,
+        type: "note",
+        ts: now + 3,
+        message: "Blocked waiting for flaky integration dependency. Awaiting user approval to retry.",
+      });
+      setApprovalStreetExpanded(true, { manual: false });
+    }
+
+    if (
+      ((cycle === 8 && active.id === "sim-lane-report-1") || (cycle === 9 && active.id === "sim-lane-exec-2")) &&
+      !interventionState.triggered.has(approvalTriggerId)
+    ) {
+      interventionState.triggered.add(approvalTriggerId);
+      needsManualIntervention = true;
+      setDemoScriptBanner("Step 3: Approval gate triggered. Use Approval Street to continue.", true);
+      interventionState.holds.set(runId, HOLD_APPROVAL);
+      ingestRawEvent({
+        ...base,
+        type: "note",
+        ts: now + 3,
+        message: "Awaiting user approval before applying risky change.",
+      });
+      setApprovalStreetExpanded(true, { manual: false });
+    }
+
+    if (!needsManualIntervention) {
+      if (cycle > 9) {
+        setDemoScriptBanner("Step 4: Agents recover and complete work after interventions.", true);
+      }
+      ingestRawEvent({
+        ...base,
+        type: "turn.completed",
+        ts: now + 3,
+        message: `${active.phase} step completed`,
+      });
     }
 
     cycle += 1;
