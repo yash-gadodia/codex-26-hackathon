@@ -249,9 +249,9 @@ body.colorblind {
 }
 
 .view-toggle {
-  margin-left: auto;
   display: inline-flex;
   gap: 6px;
+  align-items: center;
 }
 
 .view-toggle button.active {

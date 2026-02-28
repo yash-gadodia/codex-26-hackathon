@@ -9,6 +9,7 @@ const PAGE_QUERY = new URLSearchParams(window.location.search);
 const DEFAULT_HOST = window.location.hostname || "localhost";
 const DEFAULT_WS_SCHEME = window.location.protocol === "https:" ? "wss" : "ws";
 const WS_URL = PAGE_QUERY.get("ws") || `${DEFAULT_WS_SCHEME}://${DEFAULT_HOST}:8787`;
+const VIEW_MODE_QUERY = String(PAGE_QUERY.get("view") || "").toLowerCase();
 const STORAGE_KEY = "agent-viz-runs-v3";
 const SETTINGS_KEY = "agent-viz-settings-v3";
 const APP_NAME = "Lorong AI x Codex Mission Room";
@@ -115,10 +116,13 @@ const summaryStalledEl = document.getElementById("summaryStalled");
 const summaryApprovalsEl = document.getElementById("summaryApprovals");
 const summaryPrimaryCtaEl = document.getElementById("summaryPrimaryCta");
 const summaryRunSimBtnEl = document.getElementById("summaryRunSimBtn");
+const viewCityBtnEl = document.getElementById("viewCityBtn");
+const viewPaneBtnEl = document.getElementById("viewPaneBtn");
 const topSummaryBarEl = document.getElementById("topSummaryBar");
 
 const mapViewportEl = document.getElementById("mapViewport");
 const mapOverlayEl = document.getElementById("mapOverlay");
+const paneViewportEl = document.getElementById("paneViewport");
 const runBadgeEl = document.getElementById("runBadge");
 const demoScriptBannerEl = document.getElementById("demoScriptBanner");
 const demoScriptTextEl = document.getElementById("demoScriptText");
@@ -189,6 +193,7 @@ const state = {
     reducedMotion: false,
     colorblindPalette: false,
     tileSize: "m",
+    viewMode: "city",
     queueSearch: "",
     queueFilters: {
       phase: "all",
@@ -214,6 +219,7 @@ const state = {
     overlaySignature: "",
     queueSignature: "",
     approvalSignature: "",
+    paneSignature: "",
     demoScriptVisible: false,
     demoScriptText: "",
   },
@@ -397,6 +403,23 @@ function setDemoScriptBanner(text = "", visible = false) {
   if (!demoScriptBannerEl || !demoScriptTextEl) return;
   demoScriptTextEl.textContent = state.ui.demoScriptText || "Step 1: Agents start working across lanes.";
   demoScriptBannerEl.hidden = !state.ui.demoScriptVisible;
+}
+
+function applyViewModeToDom() {
+  const mode = state.ui.viewMode === "pane" ? "pane" : "city";
+  document.body.classList.toggle("view-city", mode === "city");
+  document.body.classList.toggle("view-pane", mode === "pane");
+  viewCityBtnEl.classList.toggle("active", mode === "city");
+  viewPaneBtnEl.classList.toggle("active", mode === "pane");
+}
+
+function setViewMode(mode, options = {}) {
+  const nextMode = mode === "pane" ? "pane" : "city";
+  if (state.ui.viewMode === nextMode) return;
+  state.ui.viewMode = nextMode;
+  applyViewModeToDom();
+  if (options.persist !== false) persistSettings();
+  renderUi();
 }
 
 function phaseStreetLabel(phaseId) {
@@ -829,6 +852,7 @@ function persistSettings() {
     reducedMotion: state.ui.reducedMotion,
     colorblindPalette: state.ui.colorblindPalette,
     tileSize: state.ui.tileSize,
+    viewMode: state.ui.viewMode,
     queueSearch: state.ui.queueSearch,
     queueFilters: state.ui.queueFilters,
   };
@@ -845,6 +869,7 @@ function restoreSettings() {
     if (typeof parsed.reducedMotion === "boolean") state.ui.reducedMotion = parsed.reducedMotion;
     if (typeof parsed.colorblindPalette === "boolean") state.ui.colorblindPalette = parsed.colorblindPalette;
     if (["s", "m", "l"].includes(parsed.tileSize)) state.ui.tileSize = parsed.tileSize;
+    if (parsed.viewMode === "pane" || parsed.viewMode === "city") state.ui.viewMode = parsed.viewMode;
     if (typeof parsed.queueSearch === "string") state.ui.queueSearch = parsed.queueSearch;
     if (parsed.queueFilters && typeof parsed.queueFilters === "object") {
       state.ui.queueFilters = {
@@ -857,6 +882,10 @@ function restoreSettings() {
     // ignore
   }
 
+  if (VIEW_MODE_QUERY === "pane" || VIEW_MODE_QUERY === "city") {
+    state.ui.viewMode = VIEW_MODE_QUERY;
+  }
+
   reducedMotionToggleEl.checked = state.ui.reducedMotion;
   colorblindToggleEl.checked = state.ui.colorblindPalette;
   tileSizeSelectEl.value = state.ui.tileSize;
@@ -866,6 +895,7 @@ function restoreSettings() {
   typeFilterEl.value = state.ui.queueFilters.agentType;
   document.body.classList.toggle("reduced-motion", state.ui.reducedMotion);
   document.body.classList.toggle("colorblind", state.ui.colorblindPalette);
+  applyViewModeToDom();
 }
 
 function restoreRunsFromStorage() {
@@ -1863,6 +1893,69 @@ function renderApprovalStreet(runs) {
   }
 }
 
+function renderPaneView(runs) {
+  if (!paneViewportEl) return;
+  const list = [...runs].sort((a, b) => (b.lastActionTs || 0) - (a.lastActionTs || 0));
+  let signature = `${state.ui.viewMode}|${state.ui.selectedAgentRunId || ""}|${list.length}`;
+  for (const run of list) {
+    signature += `|${run.runId}:${run.operationalStatus}:${run.currentPhase}:${run.lastActionTs || 0}:${run.timeline.length}`;
+  }
+  if (signature === state.ui.paneSignature) return;
+  state.ui.paneSignature = signature;
+
+  paneViewportEl.innerHTML = "";
+  if (list.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "pane-empty";
+    empty.textContent = "No runs available yet.";
+    paneViewportEl.append(empty);
+    return;
+  }
+
+  for (const run of list) {
+    const card = document.createElement("article");
+    card.className = `pane-card${run.runId === state.ui.selectedAgentRunId ? " active" : ""}`;
+    card.tabIndex = 0;
+    card.dataset.runId = run.runId;
+    const token = STATUS_TOKENS[run.operationalStatus] || STATUS_TOKENS.waiting;
+    const phaseText = run.requiresHumanGate ? "approval" : run.currentPhase;
+    const latest = run.timeline.at(-1);
+    const events = run.timeline.slice(-6).reverse();
+    const eventLines = events
+      .map((event) => {
+        const kind = event.derived?.[0]?.kind || "note";
+        return `<div class="pane-log-line kind-${kind.split(".")[0]}">${new Date(event.ts).toLocaleTimeString()} · ${event.summary}</div>`;
+      })
+      .join("");
+
+    card.innerHTML = `
+      <div class="pane-head">
+        <div class="pane-title">${run.label.replace(/^codex:/, "")}</div>
+        <span class="state-badge ${token.className}">${token.icon} ${run.operationalStatus}</span>
+      </div>
+      <div class="pane-meta">
+        <span>Phase: ${phaseText}</span>
+        <span>Runtime: ${formatDuration(run.runtimeMs)}</span>
+        <span>Tools: ${run.toolCount}</span>
+        <span>Files: ${run.fileCount}</span>
+        <span>Errors: ${run.errorCount}</span>
+      </div>
+      <div class="pane-step">${latest?.summary || "No event captured yet."}</div>
+      <div class="pane-log">${eventLines || `<div class="pane-log-line">No recent events.</div>`}</div>
+    `;
+
+    const openRun = () => selectRun(run.runId, { drawerMode: "overview", openDrawer: true });
+    card.addEventListener("click", openRun);
+    card.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        openRun();
+      }
+    });
+    paneViewportEl.append(card);
+  }
+}
+
 function renderDrawer() {
   const run = getActiveRunForView();
   if (!run) {
@@ -1921,8 +2014,10 @@ function renderUi() {
   const runs = getRunsForView();
   state.ui.queueSignature = "";
   state.ui.approvalSignature = "";
+  state.ui.paneSignature = "";
   renderGlobalHud();
   drawMap();
+  renderPaneView(runs);
   renderNeedsAttentionQueue(runs);
   renderAgentTable(runs);
   renderApprovalStreet(runs);
@@ -2376,6 +2471,9 @@ function setupEventHandlers() {
     runFullSimulationDemo();
   });
 
+  viewCityBtnEl.addEventListener("click", () => setViewMode("city"));
+  viewPaneBtnEl.addEventListener("click", () => setViewMode("pane"));
+
   approvalStreetToggleEl.addEventListener("click", () => {
     setApprovalStreetExpanded(!state.ui.approvalStreetExpanded, { manual: true });
   });
@@ -2553,10 +2651,12 @@ let lastFrameAt = performance.now();
 function frame(now) {
   if (now - lastFrameAt > 250) {
     lastFrameAt = now;
+    const runs = getRunsForView();
     renderGlobalHud();
     drawMap();
-    renderNeedsAttentionQueue(getRunsForView());
-    renderApprovalStreet(getRunsForView());
+    renderPaneView(runs);
+    renderNeedsAttentionQueue(runs);
+    renderApprovalStreet(runs);
     if (state.ui.criticalToastUntil && nowMs() > state.ui.criticalToastUntil) {
       state.ui.criticalToastUntil = 0;
       opsToastEl.hidden = true;
