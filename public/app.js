@@ -1,5 +1,9 @@
 import {
+  computeDisplayLabel,
+  deriveWorkflowHint,
+  extractDeveloperName,
   mapCodexToVizEvents,
+  extractThreadTitle,
   extractRunIdentity,
   getRawEventTimestamp,
   getRawEventType,
@@ -429,6 +433,20 @@ function compactText(value) {
   return String(value || "").replace(/\s+/g, " ").trim();
 }
 
+function displayLabel(run) {
+  if (!run) return "agent";
+  return String(run.label || "")
+    .replace(/^codex:/, "")
+    .trim() || "agent";
+}
+
+function labelSourceSuffix(run) {
+  if (!run) return "fallback";
+  if (run.labelSource === "developer_name") return "from developer name";
+  if (run.labelSource === "thread_title") return "from thread title";
+  return "fallback";
+}
+
 function deepFindCommandCandidate(value, depth = 0) {
   if (!value || depth > 5) return "";
   if (typeof value === "string") return "";
@@ -504,7 +522,7 @@ function extractCommandAnnouncement(rawEvent) {
       .join(" ");
     return {
       source: "Launch",
-      text: `${rawEvent?.agent || "agent"} -> ${relayCommand}`,
+      text: `${rawEvent?.agentName || rawEvent?.agent || "agent"} -> ${relayCommand}`,
     };
   }
 
@@ -575,7 +593,7 @@ function updateAnnouncementFromDerived(derivedEvents, run) {
   const message = compactText(chosen?.message || chosen?.rawType || "");
   if (!message) return false;
 
-  const runLabel = run?.label ? run.label.replace(/^codex:/, "") : "agent";
+  const runLabel = displayLabel(run);
   const text = `${runLabel}: ${message}`.slice(0, 220);
   if (state.ui.latestCommandText === text && state.ui.latestCommandSource === "Live event") return false;
   state.ui.latestCommandText = text;
@@ -699,11 +717,26 @@ function nextLorongName() {
   return `${street} #${Math.ceil(index / LORONG_STREETS.length)}`;
 }
 
-function createRun({ runId, agentId, label, laneName, manual = false, simulated = false }) {
+function createRun({
+  runId,
+  agentId,
+  label,
+  labelSource = "workflow_fallback",
+  developerName = null,
+  threadTitle = null,
+  workflowHint = "Workflow",
+  laneName,
+  manual = false,
+  simulated = false,
+}) {
   return {
     runId,
     agentId,
     label,
+    labelSource,
+    developerName,
+    threadTitle,
+    workflowHint,
     laneName: laneName || nextLorongName(),
     manual,
     simulated,
@@ -743,12 +776,25 @@ function createRun({ runId, agentId, label, laneName, manual = false, simulated 
   };
 }
 
-function ensureRun(runId, { agentId, label, laneName, manual = false, simulated = false } = {}) {
+function ensureRun(
+  runId,
+  { agentId, label, labelSource, developerName, threadTitle, workflowHint, laneName, manual = false, simulated = false } = {}
+) {
   if (state.runs.has(runId)) return state.runs.get(runId);
+  const computed = computeDisplayLabel({
+    developerName,
+    threadTitle,
+    workflowHint: workflowHint || "Workflow",
+    runId,
+  });
   const run = createRun({
     runId,
     agentId: agentId || `codex:${runId}`,
-    label: label || agentId || `codex:${runId}`,
+    label: label || computed.label,
+    labelSource: labelSource || computed.labelSource,
+    developerName: developerName || null,
+    threadTitle: threadTitle || null,
+    workflowHint: workflowHint || "Workflow",
     laneName,
     manual,
     simulated,
@@ -760,25 +806,49 @@ function ensureRun(runId, { agentId, label, laneName, manual = false, simulated 
 }
 
 function ensureMainRun() {
-  const run = ensureRun("main", { agentId: "codex:main", label: "codex:main" });
+  const run = ensureRun("main", { agentId: "codex:main", workflowHint: "Workflow" });
   if (!state.activeManualRunId) state.activeManualRunId = run.runId;
 }
 
 function pickRunForRawEvent(rawEvent, forceRunId = null) {
-  if (forceRunId) return ensureRun(forceRunId, { agentId: `codex:${forceRunId}`, label: `codex:${forceRunId}` });
+  if (forceRunId) return ensureRun(forceRunId, { agentId: `codex:${forceRunId}` });
   const identity = sanitizeRunIdentity(extractRunIdentity(rawEvent));
   if (identity) {
     const runId = `explicit:${identity}`;
     return ensureRun(runId, {
       agentId: `codex:${identity}`,
-      label: `codex:${identity}`,
       simulated: identity.startsWith("sim-"),
     });
   }
   return ensureRun(state.activeManualRunId || "main", {
     agentId: state.activeManualRunId ? `codex:${state.activeManualRunId}` : "codex:main",
-    label: state.activeManualRunId ? `codex:${state.activeManualRunId}` : "codex:main",
   });
+}
+
+function updateRunNaming(run, rawEvent) {
+  if (!run || !rawEvent || typeof rawEvent !== "object") return;
+
+  const developerName = extractDeveloperName(rawEvent);
+  if (developerName) run.developerName = developerName;
+
+  const threadTitle = extractThreadTitle(rawEvent);
+  if (threadTitle) run.threadTitle = threadTitle;
+
+  const workflowHint = deriveWorkflowHint(rawEvent, run);
+  if (workflowHint && (run.workflowHint === "Workflow" || workflowHint !== "Workflow")) {
+    run.workflowHint = workflowHint;
+  }
+
+  const next = computeDisplayLabel({
+    developerName: run.developerName,
+    threadTitle: run.threadTitle,
+    workflowHint: run.workflowHint || "Workflow",
+    runId: run.runId,
+  });
+  if (run.label !== next.label || run.labelSource !== next.labelSource) {
+    run.label = next.label;
+    run.labelSource = next.labelSource;
+  }
 }
 
 function phaseFromLaneValue(value) {
@@ -1001,6 +1071,7 @@ function integrateDerivedSet(run, rawEvent, derivedEvents, options = {}) {
   if (run.rawEvents.length > 4000) run.rawEvents.shift();
   run.rawEvents.push(rawEvent);
   run.isSwarm = run.isSwarm || Boolean(rawEvent?.swarm);
+  updateRunNaming(run, rawEvent);
 
   addTimelineRecord(run, rawEvent, derivedEvents);
   for (const derived of derivedEvents) {
@@ -1049,6 +1120,10 @@ function persistRunsToStorage() {
         runId: run.runId,
         agentId: run.agentId,
         label: run.label,
+        labelSource: run.labelSource,
+        developerName: run.developerName,
+        threadTitle: run.threadTitle,
+        workflowHint: run.workflowHint,
         laneName: run.laneName,
         manual: run.manual,
         simulated: run.simulated,
@@ -1128,7 +1203,11 @@ function restoreRunsFromStorage() {
     if (!item || !item.runId || !Array.isArray(item.rawEvents)) continue;
     const run = ensureRun(item.runId, {
       agentId: item.agentId || `codex:${item.runId}`,
-      label: item.label || item.agentId || `codex:${item.runId}`,
+      label: item.label || null,
+      labelSource: item.labelSource || null,
+      developerName: item.developerName || null,
+      threadTitle: item.threadTitle || null,
+      workflowHint: item.workflowHint || null,
       laneName: item.laneName,
       manual: Boolean(item.manual),
       simulated: Boolean(item.simulated),
@@ -1337,7 +1416,7 @@ function renderGlobalHud() {
   }
   state.ui.previousCriticalCount = criticalCount;
 
-  summaryRunIdentityEl.textContent = run ? `${run.laneName} | ${run.label}` : "Lorong: Waiting | codex:main";
+  summaryRunIdentityEl.textContent = run ? `${run.laneName} | ${displayLabel(run)}` : "Lorong: Waiting | Workflow · main";
   summaryModeEl.textContent = `Mode: ${mode}`;
 
   if (mode === "Replay") {
@@ -1399,7 +1478,7 @@ function renderGlobalHud() {
   summaryRunSimBtnEl.classList.toggle("pulse", shouldPulseSimulationCta);
 
   if (run) {
-    runBadgeEl.textContent = `${APP_NAME} | ${run.laneName} | ${run.label}`;
+    runBadgeEl.textContent = `${APP_NAME} | ${run.laneName} | ${displayLabel(run)}`;
   } else {
     runBadgeEl.textContent = `${APP_NAME} | no run selected`;
   }
@@ -1617,7 +1696,7 @@ function actorDims(densityMode) {
 }
 
 function shortLabel(run, densityMode) {
-  const raw = run.label.replace(/^codex:/, "");
+  const raw = displayLabel(run);
   return densityMode ? raw.slice(0, 9) : raw.slice(0, 12);
 }
 
@@ -2103,10 +2182,10 @@ function renderMapOverlay() {
     button.style.width = `${Math.max(4, Math.round(actor.w * scaleX))}px`;
     button.style.height = `${Math.max(4, Math.round(actor.h * scaleY))}px`;
     const clusterSuffix = actor.clusterCount > 0 ? ` | clustered +${actor.clusterCount}` : "";
-    button.title = `${actor.run.label} | ${actor.run.operationalStatus}${clusterSuffix}`;
+    button.title = `${displayLabel(actor.run)} (${labelSourceSuffix(actor.run)}) | ${actor.run.operationalStatus}${clusterSuffix}`;
     button.setAttribute(
       "aria-label",
-      `${actor.run.label}, ${actor.run.operationalStatus}, ${phaseStreetLabel(actor.phase)}${actor.clusterCount > 0 ? `, cluster of ${actor.memberRunIds.length}` : ""}`
+      `${displayLabel(actor.run)}, ${actor.run.operationalStatus}, ${phaseStreetLabel(actor.phase)}${actor.clusterCount > 0 ? `, cluster of ${actor.memberRunIds.length}` : ""}`
     );
     button.tabIndex = index === state.ui.keyboardFocusIndex ? 0 : -1;
 
@@ -2179,7 +2258,7 @@ function renderNeedsAttentionQueue(runs) {
 
     li.innerHTML = `
       <div class="attn-head">
-        <span>${iconType} ${run.label.replace(/^codex:/, "")}</span>
+        <span>${iconType} ${displayLabel(run)}</span>
         <span class="state-badge ${token.className}">${token.icon} ${run.operationalStatus}</span>
       </div>
       <div class="attn-sub">Phase: ${phaseLabel}</div>
@@ -2215,7 +2294,7 @@ function renderAgentTable(runs) {
     tr.tabIndex = 0;
 
     tr.innerHTML = `
-      <td>${run.label.replace(/^codex:/, "")}</td>
+      <td>${displayLabel(run)}</td>
       <td>${run.requiresHumanGate ? "approval" : run.currentPhase}</td>
       <td><span class="state-badge ${(STATUS_TOKENS[run.operationalStatus] || STATUS_TOKENS.waiting).className}">${run.operationalStatus}</span></td>
       <td>${formatDuration(run.runtimeMs)}</td>
@@ -2255,7 +2334,7 @@ function renderApprovalStreet(runs) {
     div.className = "approval-tile";
     div.dataset.runId = run.runId;
     div.innerHTML = `
-      <strong>🧍 ${run.label.replace(/^codex:/, "")}</strong>
+      <strong>🧍 ${displayLabel(run)}</strong>
       <span>${run.approvalSummary || "Awaiting approval"}</span>
       <span>Risk: ${run.approvalRisk.toUpperCase()}</span>
       <button type="button" data-action="approve" data-run-id="${run.runId}">Approve</button>
@@ -2302,7 +2381,7 @@ function renderPaneView(runs) {
 
     card.innerHTML = `
       <div class="pane-head">
-        <div class="pane-title">${run.label.replace(/^codex:/, "")}</div>
+        <div class="pane-title">${displayLabel(run)}</div>
         <span class="state-badge ${token.className}">${token.icon} ${run.operationalStatus}</span>
       </div>
       <div class="pane-meta">
@@ -2361,7 +2440,7 @@ function renderDrawer() {
 
   const token = STATUS_TOKENS[run.operationalStatus] || STATUS_TOKENS.waiting;
   const phaseText = run.requiresHumanGate ? "approval" : run.currentPhase;
-  drawerTitleEl.textContent = run.label.replace(/^codex:/, "");
+  drawerTitleEl.textContent = displayLabel(run);
   drawerTaskEl.textContent = run.timeline.at(-1)?.summary || "No event captured yet.";
   if (drawerV2Ready) {
     drawerStatusChipEl.className = `state-badge ${token.className}`;
@@ -2647,7 +2726,7 @@ async function importRunFromFile(file) {
   ensureRun(runId, {
     manual: true,
     agentId: `codex:run:${state.manualRunCounter}`,
-    label: `codex:run:${state.manualRunCounter}`,
+    workflowHint: "Workflow",
   });
 
   for (const event of events) {
@@ -3009,7 +3088,7 @@ function setupEventHandlers() {
     ensureRun(runId, {
       manual: true,
       agentId: `codex:run:${state.manualRunCounter}`,
-      label: `codex:run:${state.manualRunCounter}`,
+      workflowHint: "Workflow",
     });
     state.activeManualRunId = runId;
     selectRun(runId, { openDrawer: false });

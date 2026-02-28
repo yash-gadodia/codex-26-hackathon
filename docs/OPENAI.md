@@ -37,6 +37,7 @@ This project consumes Codex app-server notifications streamed over websocket:
 5. Emits lifecycle events (`relay.started`, `appserver.connected`, `appserver.error`, `codex.exit`)
 6. Uses `approvalPolicy: "never"` for non-interactive runs
 7. Parses websocket payload variants (string, Buffer, ArrayBuffer, Buffer[]) through `relay-message.mjs` before JSON-RPC classification
+8. Emits `codex.thread.started` after `thread/start` with `{ threadId, threadTitle, repo, prompt, ts }`
 
 This keeps demo control simple: one relay command launches a run and starts event streaming immediately.
 
@@ -62,6 +63,18 @@ Key mapping choices:
 - file path extraction from direct fields, arrays, and regex fallback
 
 The dashboard logic consumes derived events only, not raw protocol specifics, so the UI behavior stays understandable even when upstream event details shift.
+
+## Agent Labeling Contract
+
+Agent labels are resolved deterministically for readability:
+
+1. Developer-provided name (for swarm runs, `--agent-name` -> `params.agent_name`)
+2. Codex thread title (from `codex.thread.started` and thread metadata fields)
+3. Fallback: `"<WorkflowHint> · <shortId>"`
+
+Workflow hint is inferred from lane/phase/prompt context (`Plan`, `Execute`, `Verify`, `Report`, else `Workflow`).
+
+Generic placeholders (`agent-1`, `main`, `codex:*`, `sim-lane-*`) are ignored as developer names.
 
 ## Fail-Fast Policy
 

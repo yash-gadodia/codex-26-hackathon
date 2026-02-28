@@ -129,6 +129,103 @@ export function extractMessage(rawEvent) {
   return "";
 }
 
+function normalizeName(value) {
+  if (typeof value !== "string") return null;
+  const text = value.replace(/\s+/g, " ").trim();
+  return text || null;
+}
+
+function isGenericName(value) {
+  const text = normalizeName(value);
+  if (!text) return true;
+  const lower = text.toLowerCase();
+  if (
+    lower === "main"
+    || lower === "agent"
+    || lower === "default"
+    || lower === "unknown"
+    || lower === "unnamed"
+    || /^agent[-_\s]?\d+$/.test(lower)
+    || /^codex:/.test(lower)
+    || /^sim-lane-/.test(lower)
+    || /^manual:\d+$/.test(lower)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+export function extractDeveloperName(rawEvent) {
+  const params = rawEvent?.params && typeof rawEvent.params === "object" ? rawEvent.params : {};
+  const candidates = [
+    params?.agent_name,
+    params?.agentName,
+    params?.agent?.name,
+    rawEvent?.agent_name,
+    rawEvent?.agentName,
+    rawEvent?.swarm?.agentName,
+  ];
+  for (const candidate of candidates) {
+    const name = normalizeName(candidate);
+    if (!name || isGenericName(name)) continue;
+    return name;
+  }
+  return null;
+}
+
+export function extractThreadTitle(rawEvent) {
+  const params = rawEvent?.params && typeof rawEvent.params === "object" ? rawEvent.params : {};
+  const candidates = [rawEvent?.threadTitle, params?.threadTitle, params?.thread?.title, rawEvent?.thread?.title];
+  for (const candidate of candidates) {
+    const title = normalizeName(candidate);
+    if (title) return title;
+  }
+  return null;
+}
+
+export function deriveWorkflowHint(rawEvent, run = null) {
+  const params = rawEvent?.params && typeof rawEvent.params === "object" ? rawEvent.params : {};
+  const laneText = normalizeName(rawEvent?.lane || params?.lane || params?.item?.lane || run?.currentPhase || "");
+  const promptText = normalizeName(rawEvent?.prompt || params?.prompt || "");
+  const combined = `${laneText || ""} ${promptText || ""}`.toLowerCase();
+  if (/(plan|planning)/.test(combined)) return "Plan";
+  if (/(verify|verification|verif|test|qa)/.test(combined)) return "Verify";
+  if (/(report|summary|summarize|writeup|write-up)/.test(combined)) return "Report";
+  if (/(execute|execution|exec|implement|build|fix|run)/.test(combined)) return "Execute";
+  return "Workflow";
+}
+
+function shortRunId(runId) {
+  const raw = String(runId || "")
+    .replace(/^explicit:/, "")
+    .replace(/^replay:/, "")
+    .trim();
+  if (!raw) return "run";
+  const tokens = raw.split(/[^a-z0-9]+/i).filter(Boolean);
+  const pick = (tokens[tokens.length - 1] || raw).replace(/[^a-z0-9]/gi, "");
+  if (!pick) return "run";
+  if (pick.length <= 8) return pick.toLowerCase();
+  return pick.slice(-8).toLowerCase();
+}
+
+export function computeDisplayLabel({ developerName, threadTitle, workflowHint, runId }) {
+  const developer = normalizeName(developerName);
+  if (developer && !isGenericName(developer)) {
+    return { label: developer, labelSource: "developer_name" };
+  }
+
+  const title = normalizeName(threadTitle);
+  if (title) {
+    return { label: title, labelSource: "thread_title" };
+  }
+
+  const hint = normalizeName(workflowHint) || "Workflow";
+  return {
+    label: `${hint} · ${shortRunId(runId)}`,
+    labelSource: "workflow_fallback",
+  };
+}
+
 function extractToolName(rawEvent, blobLower) {
   const item = rawEvent?.params?.item;
   const fromItem =

@@ -52,6 +52,17 @@ For concurrent local testing:
 4. Swarm stream is cinematic by default: noisy deltas are filtered, non-critical events are paced, and file deltas are coalesced for readability
 5. If cadence flags are omitted, swarm defaults are slower (`stagger=2400ms`, `restart-delay=10000ms`) for judge readability
 
+### Optional: explicit agent names
+
+To map agents directly to workflows in UI labels:
+
+`npm run swarm -- --repo <path> --count 2 --agent-name "Planner" --agent-name "Verifier" --prompt "Plan workflow" --prompt "Verify workflow"`
+
+Label precedence is:
+1. Developer name (`--agent-name`)
+2. Codex thread title
+3. Workflow + short ID fallback
+
 ## Calm Judge Mode
 
 When you need a deterministic fallback, use the in-UI calm simulation:

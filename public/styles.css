@@ -238,6 +238,7 @@ body.colorblind {
   color: #f4fff8;
   font-size: 14px;
   font-weight: 900;
+  text-transform: none;
   letter-spacing: 0.04em;
   box-shadow:
     0 0 0 3px rgba(255, 226, 130, 0.32),
@@ -247,6 +248,11 @@ body.colorblind {
     box-shadow 200ms ease,
     filter 200ms ease;
   animation: sim-cta-attention 2.2s ease-in-out infinite;
+}
+
+.summary-cta-icon {
+  margin-left: 8px;
+  font-size: 0.9em;
 }
 
 .summary-cta-run.pulse {

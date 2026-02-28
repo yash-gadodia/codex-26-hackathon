@@ -31,6 +31,7 @@ const staggerMs = Math.max(0, Number(arg("--stagger-ms", "2400")) || 2400);
 const restartDelayMs = Math.max(0, Number(arg("--restart-delay-ms", "10000")) || 10000);
 const continuous = /^(1|true|yes|on)$/i.test(String(arg("--continuous", "false")));
 const prompts = args("--prompt");
+const agentNames = args("--agent-name");
 const NON_CRITICAL_EMIT_GAP_MS = 850;
 const FILE_DELTA_COALESCE_MS = 1000;
 const FILE_REGEX = /([\w./-]+\.(?:ts|js|mjs|cjs|jsx|tsx|py|go|java|rs|md|json|yml|yaml|toml|sql))/gi;
@@ -75,6 +76,11 @@ const promptDefaults = [
 function promptFor(index) {
   if (prompts[index]) return prompts[index];
   return promptDefaults[index % promptDefaults.length];
+}
+
+function agentNameFor(index) {
+  const value = typeof agentNames[index] === "string" ? agentNames[index].trim() : "";
+  return value || null;
 }
 
 const wss = new WebSocketServer({ port: publicPort, host });
@@ -399,6 +405,7 @@ async function startAgent(index) {
   const appServerPort = appServerBasePort + index;
   const repoPath = repoFor(index);
   const prompt = promptFor(index);
+  const agentName = agentNameFor(index);
   const cycle = (cyclesByAgent.get(agentTag) || 0) + 1;
   cyclesByAgent.set(agentTag, cycle);
   clearPacingState(agentTag);
@@ -516,6 +523,9 @@ async function startAgent(index) {
     if (!parsed.params.run_id) {
       parsed.params.run_id = agentTag;
     }
+    if (agentName && !parsed.params.agent_name) {
+      parsed.params.agent_name = agentName;
+    }
 
     shapeAndBroadcast(agentTag, parsed);
   });
@@ -551,6 +561,7 @@ async function startAgent(index) {
     type: "swarm.agent.started",
     ts: Date.now(),
     agent: agentTag,
+    agentName,
     cycle,
     repo: repoPath,
     relayPort,

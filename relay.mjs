@@ -357,6 +357,16 @@ async function startSession() {
     if (!threadId) {
       throw new Error("thread/start response did not include thread.id");
     }
+    const threadTitle = typeof threadStart?.thread?.title === "string" ? threadStart.thread.title.trim() : "";
+
+    broadcast({
+      type: "codex.thread.started",
+      ts: Date.now(),
+      threadId,
+      threadTitle: threadTitle || null,
+      repo: resolvedRepo,
+      prompt,
+    });
 
     await sendJsonRpcRequest("turn/start", {
       threadId,
