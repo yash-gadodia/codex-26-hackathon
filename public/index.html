@@ -3,13 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Codex Agent Viz SG</title>
+    <title>What Is My Agent Up To (WIMUT)</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
     <main class="layout">
       <aside class="panel panel-left" aria-label="Runs and connection">
-        <h1>Codex Agent Viz SG</h1>
+        <h1>What Is My Agent Up To (WIMUT)</h1>
         <p id="wsStatus" class="chip">WS: connecting</p>
         <div class="control-group">
           <label class="field">
@@ -46,11 +46,44 @@
       </aside>
 
       <section class="panel panel-center" aria-label="City and timeline">
+        <section class="caption-bar" aria-live="polite">
+          <div class="caption-main">
+            <p id="captionMode" class="caption-pill">Mode: Live</p>
+            <p id="captionArea" class="caption-pill">Area: Waiting</p>
+            <p id="captionState" class="caption-pill">State: Waiting</p>
+          </div>
+          <p id="captionStep" class="caption-step">Current step: Waiting for first event.</p>
+          <p id="captionFile" class="caption-file">Current file: none</p>
+        </section>
+
         <div class="canvas-wrap">
           <canvas id="cityCanvas" width="1280" height="720"></canvas>
           <p id="stuckBanner" class="stuck-banner" hidden>Stuck signal</p>
           <p id="runBadge" class="run-badge">run: none</p>
         </div>
+
+        <section class="story-panel" aria-live="polite">
+          <p id="storyState" class="story-state">Agent state: waiting</p>
+          <div class="story-top-row">
+            <h2 id="storyTitle">What is happening now</h2>
+            <button id="focusModeBtn" type="button">Focus View: On</button>
+          </div>
+          <p id="storyBody">Waiting for events.</p>
+          <p id="storyFacts" class="story-facts">No recent activity yet.</p>
+          <ul id="storyReasons" class="story-reasons"></ul>
+          <p id="storyNext" class="story-next">Next: waiting for first event.</p>
+          <div class="legend-box">
+            <p class="story-legend">Legend</p>
+            <ul class="legend-list">
+              <li><strong>CBD</strong> = core app and backend work</li>
+              <li><strong>Bugis</strong> = frontend and UI work</li>
+              <li><strong>Jurong</strong> = infra, config, deploy work</li>
+              <li><strong>Changi</strong> = tests and QA work</li>
+              <li><strong>Merlion HQ</strong> = the main agent</li>
+              <li>Cars = tools running, desk upgrades = file changes, red = errors, fireworks = success</li>
+            </ul>
+          </div>
+        </section>
 
         <section class="replay-bar" aria-label="Replay controls">
           <div class="row replay-row">

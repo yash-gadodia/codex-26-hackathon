@@ -9,6 +9,7 @@ const WS_URL = "ws://localhost:8787";
 const DIFF_HELPER_URL = "http://localhost:8790";
 const STORAGE_KEY = "agent-viz-runs-v2";
 const SETTINGS_KEY = "agent-viz-settings-v1";
+const HARDCODED_REPO_PATH = "/Users/yash/Documents/Voltade/Code/openclaw";
 
 const WORLD = {
   width: 1280,
@@ -51,6 +52,12 @@ const canvas = document.getElementById("cityCanvas");
 const ctx = canvas.getContext("2d");
 ctx.imageSmoothingEnabled = false;
 
+const CHARACTER_ATLASES = Array.from({ length: 6 }, (_, index) => {
+  const img = new Image();
+  img.src = `/assets/characters/char_${index}.png`;
+  return img;
+});
+
 const wsStatusEl = document.getElementById("wsStatus");
 const repoPathInputEl = document.getElementById("repoPathInput");
 const useGitDiffToggleEl = document.getElementById("useGitDiffToggle");
@@ -65,6 +72,18 @@ const simAsleepBtnEl = document.getElementById("simAsleepBtn");
 const runListEl = document.getElementById("runList");
 const stuckBannerEl = document.getElementById("stuckBanner");
 const runBadgeEl = document.getElementById("runBadge");
+const storyStateEl = document.getElementById("storyState");
+const storyTitleEl = document.getElementById("storyTitle");
+const storyBodyEl = document.getElementById("storyBody");
+const storyFactsEl = document.getElementById("storyFacts");
+const storyReasonsEl = document.getElementById("storyReasons");
+const storyNextEl = document.getElementById("storyNext");
+const focusModeBtnEl = document.getElementById("focusModeBtn");
+const captionModeEl = document.getElementById("captionMode");
+const captionAreaEl = document.getElementById("captionArea");
+const captionStateEl = document.getElementById("captionState");
+const captionStepEl = document.getElementById("captionStep");
+const captionFileEl = document.getElementById("captionFile");
 const playPauseBtnEl = document.getElementById("playPauseBtn");
 const liveViewBtnEl = document.getElementById("liveViewBtn");
 const replaySpeedEl = document.getElementById("replaySpeed");
@@ -101,7 +120,7 @@ const state = {
     manualReconnect: false,
   },
   git: {
-    repoPath: "",
+    repoPath: HARDCODED_REPO_PATH,
     useGitDiff: false,
     lastPollAt: 0,
     lastFingerprint: "",
@@ -114,6 +133,9 @@ const state = {
     index: 0,
     speed: 1,
     timer: null,
+  },
+  ui: {
+    focusMode: true,
   },
   simulatorTimers: [],
   persistTimer: null,
@@ -169,6 +191,22 @@ function districtFromText(text) {
   return "CBD";
 }
 
+function districtMeaning(district) {
+  if (district === "Bugis") return "Frontend / UI";
+  if (district === "Jurong") return "Infra / DevOps";
+  if (district === "Changi") return "Tests / QA";
+  return "Core App / Backend";
+}
+
+function prettyState(status, run) {
+  if (!run) return "Waiting";
+  if (run.stuckScore > 0.7 || run.failureStreak >= 2) return "Scolded";
+  if (status === "working") return "Doing task";
+  if (status === "done") return "Done";
+  if (status === "error") return "Error";
+  return "Idle";
+}
+
 function tileToPx(col, row) {
   return {
     x: col * WORLD.tile,
@@ -196,6 +234,17 @@ function formatDuration(ms) {
   const rem = sec % 60;
   if (min > 0) return `${min}m ${rem}s`;
   return `${sec}s`;
+}
+
+function ageText(ts) {
+  if (!ts) return "n/a";
+  const diffSec = Math.max(0, Math.floor((nowMs() - ts) / 1000));
+  if (diffSec < 5) return "just now";
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const min = Math.floor(diffSec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  return `${hr}h ago`;
 }
 
 function levelFromTouches(touches) {
@@ -534,21 +583,21 @@ function summariseEvent(derivedEvents) {
 
   if (kinds.includes("error")) {
     const err = derivedEvents.find((item) => item.kind === "error");
-    return err?.message || "Error";
+    return `Agent hit an error: ${err?.message || "unknown error"}`;
   }
   if (kinds.includes("file.changed")) {
     const file = derivedEvents.find((item) => item.kind === "file.changed");
-    return `Changed ${file?.filePath || "file"}`;
+    return `Agent changed file: ${file?.filePath || "file"}`;
   }
   if (kinds.includes("success")) {
-    return "Success signal";
+    return "Agent reported success";
   }
   if (kinds.includes("tool.activity")) {
     const tool = derivedEvents.find((item) => item.kind === "tool.activity");
-    return `Tool activity ${tool?.toolName ? `(${tool.toolName})` : ""}`.trim();
+    return `Agent is using tool ${tool?.toolName ? tool.toolName : "tool"}`;
   }
   const note = derivedEvents.find((item) => item.kind === "note");
-  return note?.message || "Note";
+  return note?.message ? `Agent note: ${note.message}` : "Agent note";
 }
 
 function addTimelineRecord(run, rawEvent, derivedEvents) {
@@ -612,6 +661,7 @@ function persistSettings() {
   const payload = {
     repoPath: state.git.repoPath,
     useGitDiff: state.git.useGitDiff,
+    focusMode: state.ui.focusMode,
   };
   try {
     localStorage.setItem(SETTINGS_KEY, JSON.stringify(payload));
@@ -623,9 +673,6 @@ function persistSettings() {
 function restoreSettings() {
   try {
     const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
-    if (typeof parsed.repoPath === "string") {
-      state.git.repoPath = parsed.repoPath;
-    }
     if (typeof parsed.useGitDiff === "boolean") {
       state.git.useGitDiff = parsed.useGitDiff;
     }
@@ -633,8 +680,12 @@ function restoreSettings() {
     // Ignore invalid settings payload.
   }
 
+  state.ui.focusMode = true;
+  state.git.repoPath = HARDCODED_REPO_PATH;
   repoPathInputEl.value = state.git.repoPath;
   useGitDiffToggleEl.checked = state.git.useGitDiff;
+  document.body.classList.toggle("focus-mode", state.ui.focusMode);
+  focusModeBtnEl.textContent = `Focus View: ${state.ui.focusMode ? "On" : "Off"}`;
 }
 
 function restoreRunsFromStorage() {
@@ -978,6 +1029,49 @@ function drawText(target, text, x, y, color = "#f4f0de", size = 12) {
   target.fillText(text, Math.round(x), Math.round(y));
 }
 
+function drawCharacter(target, x, y, palette = 0, scale = 2, frameCol = 1, frameRow = 0) {
+  const atlas = CHARACTER_ATLASES[palette % CHARACTER_ATLASES.length];
+  const drawW = 16 * scale;
+  const drawH = 32 * scale;
+
+  if (atlas && atlas.complete && atlas.naturalWidth > 0) {
+    const sx = frameCol * 16;
+    const sy = frameRow * 32;
+    target.drawImage(atlas, sx, sy, 16, 32, Math.round(x - drawW / 2), Math.round(y - drawH), drawW, drawH);
+    return;
+  }
+
+  // Fallback block sprite while atlas is loading.
+  drawPx(target, x - 8, y - 20, 16, 8, "#f2c4a8");
+  drawPx(target, x - 9, y - 12, 18, 12, "#5c8ecf");
+  drawPx(target, x - 8, y, 6, 8, "#30495f");
+  drawPx(target, x + 2, y, 6, 8, "#30495f");
+}
+
+function drawDesk(target, x, y, accent = "#9e6b2d") {
+  drawPx(target, x, y, 38, 20, "#5f3d1f");
+  drawPx(target, x + 2, y + 2, 34, 16, accent);
+  drawPx(target, x + 4, y + 5, 12, 8, "#5b6678");
+  drawPx(target, x + 19, y + 8, 8, 5, "#d7dde8");
+}
+
+function drawBookshelf(target, x, y) {
+  drawPx(target, x, y, 30, 24, "#5a3418");
+  drawPx(target, x + 2, y + 3, 26, 2, "#ad7a33");
+  drawPx(target, x + 2, y + 10, 26, 2, "#ad7a33");
+  drawPx(target, x + 2, y + 17, 26, 2, "#ad7a33");
+  drawPx(target, x + 4, y + 4, 3, 5, "#d45d5d");
+  drawPx(target, x + 8, y + 4, 3, 5, "#5d8fd4");
+  drawPx(target, x + 12, y + 4, 3, 5, "#73bf7a");
+}
+
+function drawPlant(target, x, y) {
+  drawPx(target, x + 4, y + 12, 10, 8, "#7b4a2d");
+  drawPx(target, x + 7, y + 4, 2, 8, "#4da35b");
+  drawPx(target, x + 9, y + 2, 3, 10, "#66bb74");
+  drawPx(target, x + 5, y + 5, 2, 8, "#5eb76d");
+}
+
 function buildStaticLayer() {
   const layer = document.createElement("canvas");
   layer.width = WORLD.width;
@@ -985,62 +1079,86 @@ function buildStaticLayer() {
   const c = layer.getContext("2d");
   c.imageSmoothingEnabled = false;
 
-  drawPx(c, 0, 0, WORLD.width, WORLD.height, "#15314a");
+  drawPx(c, 0, 0, WORLD.width, WORLD.height, "#0f1e2d");
+  drawPx(c, 0, 0, WORLD.width, 190, "#2a4560");
+  drawPx(c, 0, 190, WORLD.width, 80, "#375a7a");
+  drawPx(c, 0, 270, WORLD.width, WORLD.height - 270, "#1e3b56");
 
-  for (let y = 0; y < WORLD.height; y += WORLD.tile) {
-    const tone = y < 180 ? "#1f4f70" : y < 320 ? "#21445e" : "#1a374e";
-    drawPx(c, 0, y, WORLD.width, WORLD.tile, tone);
+  // City skyline windows.
+  for (let i = 0; i < 38; i += 1) {
+    const x = 14 + i * 33;
+    const h = 36 + ((i * 23) % 100);
+    drawPx(c, x, 178 - h, 20, h, i % 2 === 0 ? "#1f354a" : "#26435f");
+    drawPx(c, x + 4, 178 - h + 8, 2, 2, "#9dd6ff");
+    drawPx(c, x + 9, 178 - h + 16, 2, 2, "#9dd6ff");
+    drawPx(c, x + 14, 178 - h + 28, 2, 2, "#9dd6ff");
   }
 
-  for (let i = 0; i < 34; i += 1) {
-    const x = 20 + i * 36;
-    const h = 40 + ((i * 17) % 90);
-    drawPx(c, x, 220 - h, 22, h, i % 3 === 0 ? "#223b4f" : "#2a4a61");
-    drawPx(c, x + 4, 220 - h + 8, 3, 3, "#a6d8ff");
-    drawPx(c, x + 12, 220 - h + 18, 3, 3, "#a6d8ff");
+  // Corridor and lobby strip.
+  drawPx(c, 32, 208, WORLD.width - 64, 38, "#d4cbbb");
+  for (let x = 32; x < WORLD.width - 32; x += 22) {
+    drawPx(c, x, 227, 13, 1, "rgba(0,0,0,0.12)");
   }
-
-  drawPx(c, MARINA.x * WORLD.tile, MARINA.y * WORLD.tile, MARINA.w * WORLD.tile, MARINA.h * WORLD.tile, "#2a84be");
-  drawPx(c, MARINA.x * WORLD.tile, MARINA.y * WORLD.tile + 10, MARINA.w * WORLD.tile, 2, "#8dd4ff");
-  drawPx(c, MARINA.x * WORLD.tile, MARINA.y * WORLD.tile + 28, MARINA.w * WORLD.tile, 2, "#8dd4ff");
 
   for (const [name, district] of Object.entries(DISTRICTS)) {
-    const px = district.x * WORLD.tile;
-    const py = district.y * WORLD.tile;
-    const w = district.w * WORLD.tile;
-    const h = district.h * WORLD.tile;
-
-    drawPx(c, px, py, w, h, district.color);
-    drawPx(c, px + 2, py + 2, w - 4, h - 4, "rgba(0,0,0,0.18)");
-
-    drawPx(c, px, py, w, 2, district.glow);
-    drawPx(c, px, py + h - 2, w, 2, district.glow);
-    drawPx(c, px, py, 2, h, district.glow);
-    drawPx(c, px + w - 2, py, 2, h, district.glow);
-
-    drawText(c, name, px + 8, py + 18, "#f8f3df", 12);
+    drawDistrictRoom(c, name, district);
   }
 
   drawMerlion(c);
-  drawMrtTrack(c);
 
   return layer;
 }
 
+function drawDistrictRoom(target, name, district) {
+  const px = district.x * WORLD.tile;
+  const py = district.y * WORLD.tile;
+  const w = district.w * WORLD.tile;
+  const h = district.h * WORLD.tile;
+
+  drawPx(target, px, py, w, h, "#22384e");
+  drawPx(target, px + 4, py + 4, w - 8, h - 8, district.color);
+
+  // Floor tiles.
+  for (let y = py + 6; y < py + h - 8; y += 14) {
+    for (let x = px + 6; x < px + w - 8; x += 14) {
+      drawPx(target, x, y, 11, 11, "rgba(255,255,255,0.06)");
+    }
+  }
+
+  // Walls.
+  drawPx(target, px, py, w, 4, district.glow);
+  drawPx(target, px, py + h - 4, w, 4, district.glow);
+  drawPx(target, px, py, 4, h, district.glow);
+  drawPx(target, px + w - 4, py, 4, h, district.glow);
+
+  // Furniture for the pixel-agents office vibe.
+  drawDesk(target, px + 18, py + 22, "#9a6e2f");
+  drawDesk(target, px + w - 56, py + 22, "#9a6e2f");
+  drawDesk(target, px + 18, py + h - 44, "#865e26");
+  drawDesk(target, px + w - 56, py + h - 44, "#865e26");
+  drawBookshelf(target, px + 10, py + 8);
+  drawBookshelf(target, px + w - 42, py + 8);
+  drawPlant(target, px + 8, py + h - 24);
+  drawPlant(target, px + w - 22, py + h - 24);
+
+  drawText(target, name, px + 8, py + 18, "#f8f3df", 13);
+  drawText(target, districtMeaning(name), px + 8, py + 32, "#fff1c8", 9);
+}
+
 function drawMerlion(target) {
   const base = tileToPx(HQ.x, HQ.y);
-  const x = base.x - 12;
-  const y = base.y - 22;
+  const x = base.x - 16;
+  const y = base.y - 26;
 
-  drawPx(target, x + 8, y + 28, 16, 12, "#b6c5d4");
-  drawPx(target, x + 11, y + 16, 10, 14, "#d8e4ee");
-  drawPx(target, x + 9, y + 8, 14, 10, "#dce8f2");
-  drawPx(target, x + 15, y + 5, 6, 5, "#dce8f2");
-  drawPx(target, x + 21, y + 9, 5, 3, "#8fd0ff");
-  drawPx(target, x + 25, y + 10, 7, 2, "#6ec2ff");
-  drawPx(target, x + 6, y + 38, 20, 4, "#8e6e4a");
+  drawPx(target, x + 4, y + 34, 30, 14, "#8e6e4a");
+  drawPx(target, x + 8, y + 16, 20, 20, "#dbe8f2");
+  drawPx(target, x + 10, y + 6, 16, 12, "#e7f0f8");
+  drawPx(target, x + 20, y + 10, 8, 4, "#8fd0ff");
+  drawPx(target, x + 27, y + 11, 9, 3, "#6ec2ff");
+  drawPx(target, x + 12, y + 40, 12, 4, "#745234");
 
-  drawText(target, "MERLION HQ", x - 16, y + 52, "#ffe7bd", 10);
+  drawText(target, "MAIN AGENT", x - 10, y + 56, "#ffe7bd", 10);
+  drawText(target, "MERLION HQ", x - 10, y + 68, "#bfe6ff", 9);
 }
 
 function drawMrtTrack(target) {
@@ -1067,15 +1185,17 @@ function drawWaterShimmer(target, timeSec) {
 function drawDistrictBuildings(target, run) {
   for (const [district, slots] of Object.entries(DISTRICT_SLOTS)) {
     const slotMap = run?.slotStats?.[district] || new Map();
+    let activeCount = 0;
 
     for (const slot of slots) {
       const slotState = slotMap.get(slot.index);
       if (!slotState) continue;
       const level = slotState.level;
+      activeCount += 1;
 
       const px = slot.col * WORLD.tile;
       const py = slot.row * WORLD.tile;
-      const height = level === 1 ? 10 : level === 2 ? 18 : 26;
+      const height = level === 1 ? 18 : level === 2 ? 26 : 36;
       const color =
         district === "Bugis"
           ? "#95f0bf"
@@ -1085,25 +1205,35 @@ function drawDistrictBuildings(target, run) {
               ? "#c3e7ff"
               : "#a9d3ff";
 
-      drawPx(target, px, py + (16 - height), 12, height, color);
-      drawPx(target, px + 2, py + (18 - height), 8, 2, "rgba(0,0,0,0.22)");
+      drawPx(target, px, py + (16 - height), 16, height, color);
+      drawPx(target, px + 2, py + (18 - height), 12, 3, "rgba(0,0,0,0.22)");
+      drawPx(target, px + 4, py + (14 - height), 8, 6, "#5d6e83");
       if (level >= 2) {
-        drawPx(target, px + 2, py + (14 - height), 2, 2, "#fff6b8");
-        drawPx(target, px + 6, py + (10 - height), 2, 2, "#fff6b8");
+        drawPx(target, px + 5, py + (13 - height), 2, 2, "#fff6b8");
+        drawPx(target, px + 9, py + (13 - height), 2, 2, "#fff6b8");
       }
       if (level >= 3) {
-        drawPx(target, px + 4, py + (6 - height), 4, 2, "#fff0aa");
+        drawPx(target, px + 3, py + (6 - height), 10, 2, "#fff0aa");
+        drawPx(target, px + 6, py + (4 - height), 4, 2, "#fff0aa");
       }
     }
+
+    const room = DISTRICTS[district];
+    const roomPx = room.x * WORLD.tile;
+    const roomPy = room.y * WORLD.tile;
+    drawText(target, `${activeCount} touched`, roomPx + 10, roomPy + 34, "#fff3cf", 10);
   }
 }
 
 function drawVehicles(target, run) {
   for (const vehicle of run.vehicles) {
-    drawPx(target, vehicle.x - 7, vehicle.y - 4, 14, 7, vehicle.color);
-    drawPx(target, vehicle.x - 5, vehicle.y - 2, 6, 3, "#21384c");
-    drawPx(target, vehicle.x - 6, vehicle.y + 3, 3, 2, "#1f2123");
-    drawPx(target, vehicle.x + 2, vehicle.y + 3, 3, 2, "#1f2123");
+    drawPx(target, vehicle.x - 14, vehicle.y - 8, 28, 14, vehicle.color);
+    drawPx(target, vehicle.x - 10, vehicle.y - 5, 12, 6, "#21384c");
+    drawPx(target, vehicle.x - 10, vehicle.y + 6, 5, 3, "#1f2123");
+    drawPx(target, vehicle.x + 5, vehicle.y + 6, 5, 3, "#1f2123");
+    if (vehicle.toolName) {
+      drawText(target, vehicle.toolName.slice(0, 5), vehicle.x - 12, vehicle.y - 11, "#fff4d7", 8);
+    }
   }
 }
 
@@ -1140,24 +1270,21 @@ function drawNpc(target, npcData, runtimeState) {
   const px = npcData.x * WORLD.tile;
   const py = npcData.y * WORLD.tile;
 
-  drawPx(target, px + 3, py + 2, 8, 8, npcData.color);
-  drawPx(target, px + 4, py + 10, 6, 6, "#30495f");
-  drawPx(target, px + 3, py + 16, 3, 4, "#252f3c");
-  drawPx(target, px + 8, py + 16, 3, 4, "#252f3c");
+  drawCharacter(target, px + 12, py + 26, hashString(npcData.label), 2, 1, 0);
 
-  drawText(target, npcData.label, px - 18, py - 2, "#f5e6c8", 9);
+  drawText(target, npcData.label, px - 18, py + 34, "#f5e6c8", 9);
 
   if (!runtimeState.text) return;
 
   const text = runtimeState.text;
-  const width = Math.max(90, text.length * 6 + 10);
+  const width = Math.max(130, text.length * 7 + 14);
   const bx = px + 18;
-  const by = py - 26;
+  const by = py - 20;
 
-  drawPx(target, bx, by, width, 18, "rgba(10, 18, 26, 0.85)");
-  drawPx(target, bx + 2, by + 2, width - 4, 14, "rgba(240, 242, 220, 0.12)");
-  drawPx(target, bx - 2, by + 10, 4, 4, "rgba(10, 18, 26, 0.85)");
-  drawText(target, text, bx + 5, by + 12, "#f9f2d4", 10);
+  drawPx(target, bx, by, width, 24, "rgba(10, 18, 26, 0.9)");
+  drawPx(target, bx + 2, by + 2, width - 4, 20, "rgba(240, 242, 220, 0.16)");
+  drawPx(target, bx - 2, by + 12, 4, 4, "rgba(10, 18, 26, 0.9)");
+  drawText(target, text, bx + 6, by + 16, "#f9f2d4", 11);
 }
 
 function drawHighlight(target, run) {
@@ -1193,6 +1320,27 @@ function drawHaze(target, run) {
   drawText(target, "CONSTRUCTION STALLED", signX + 6, signY + 13, "#2f1a0d", 9);
 }
 
+function drawMainAgent(target, run) {
+  const base = tileToPx(HQ.x, HQ.y);
+  const px = base.x + 8;
+  const py = base.y + 34;
+  drawCharacter(target, px, py, hashString(run.runId), 3, 1, 0);
+
+  const tagText =
+    run.status === "error"
+      ? "SCOLDED"
+      : run.status === "working"
+        ? "WORKING"
+        : run.status === "done"
+          ? "DONE"
+          : "IDLE";
+
+  const bg = run.status === "error" ? "#802323" : run.status === "working" ? "#6e5a1f" : "#204355";
+  drawPx(target, px - 36, py - 76, 72, 14, bg);
+  drawPx(target, px - 34, py - 74, 68, 10, "rgba(255,255,255,0.15)");
+  drawText(target, `AGENT ${tagText}`, px - 31, py - 66, "#fdf3d9", 9);
+}
+
 function drawRun(run, timeSec) {
   ctx.clearRect(0, 0, WORLD.width, WORLD.height);
   ctx.drawImage(staticLayer, 0, 0);
@@ -1206,6 +1354,7 @@ function drawRun(run, timeSec) {
   drawNpc(ctx, NPCS.auntie, run.npcs.auntie);
   drawNpc(ctx, NPCS.uncle, run.npcs.uncle);
   drawNpc(ctx, NPCS.mrt, run.npcs.mrt);
+  drawMainAgent(ctx, run);
   drawHighlight(ctx, run);
   drawHaze(ctx, run);
 }
@@ -1354,21 +1503,169 @@ function renderWsStatus() {
 function renderRunBadge() {
   const run = getActiveRunForView();
   if (!run) {
-    runBadgeEl.textContent = "run: none";
+    runBadgeEl.textContent = "WIMUT | no run selected";
     return;
   }
 
   if (state.replay.active && state.replay.sourceRunId) {
-    runBadgeEl.textContent = `run: ${run.label} (replay)`;
+    runBadgeEl.textContent = `WIMUT | ${run.label} | Replay mode`;
     return;
   }
 
-  runBadgeEl.textContent = `run: ${run.label}`;
+  runBadgeEl.textContent = `WIMUT | ${run.label} | Live mode`;
+}
+
+function buildStoryForRun(run) {
+  const latest = run?.timeline?.[run.timeline.length - 1] || null;
+  const latestKinds = latest ? latest.derived.map((item) => item.kind) : [];
+
+  if (!run) {
+    return {
+      stateLabel: "Agent state: waiting",
+      stateClass: "state-idle",
+      title: "What is happening now",
+      body: "Waiting for events.",
+      facts: "No recent activity yet.",
+      reasons: [
+        "WebSocket stream has not delivered events yet.",
+        "Start relay or use Simulator Pack for a live demo.",
+      ],
+      nextAction: "Next: connect relay and send the first codex event.",
+    };
+  }
+
+  const durationMs = (run.lastTs || run.createdAt) - (run.firstTs || run.createdAt);
+  const latestSummary = latest ? latest.summary : "No event captured yet";
+  const latestType = latest ? latest.rawType : "none";
+  const latestDistrict = latest ? latest.district : "CBD";
+  const latestFile = latest?.filePath || "none";
+
+  const sharedReasons = [
+    `Latest event: ${latestType} (${latestSummary})`,
+    `Current area: ${latestDistrict} (${districtMeaning(latestDistrict)})`,
+    `Current file: ${latestFile}`,
+    `Last file change: ${ageText(run.lastFileChangeAt)}`,
+    `Last tool activity: ${ageText(run.lastToolAt)}`,
+  ];
+
+  if (run.stuckScore > 0.7 || run.failureStreak >= 2) {
+    return {
+      stateLabel: "Agent state: scolded",
+      stateClass: "state-scolded",
+      title: "Agent is scolded and likely stuck",
+      body: "Errors are repeating and progress is stalling. The run needs a narrower next step.",
+      facts: `stuck=${run.stuckScore.toFixed(2)} | errors=${run.errorCount} | failures in a row=${run.failureStreak} | ${run.intervention}`,
+      reasons: [
+        `Error signatures are repeating in this run (${run.errorCount} total errors).`,
+        `Failure streak is ${run.failureStreak} without a recovery success.`,
+        ...sharedReasons,
+      ],
+      nextAction: `Next: ${run.intervention}. Focus on ${latestDistrict} and the latest failing file.`,
+    };
+  }
+
+  if (run.status === "working" || latestKinds.includes("tool.activity")) {
+    const focus =
+      run.toolCount > run.fileCount
+        ? "Agent is exploring and running tools."
+        : "Agent is actively changing files.";
+    return {
+      stateLabel: "Agent state: doing task",
+      stateClass: "state-working",
+      title: "Agent is working on the task",
+      body: focus,
+      facts: `duration=${formatDuration(durationMs)} | tools=${run.toolCount} | file changes=${run.fileCount} | errors=${run.errorCount}`,
+      reasons: [
+        "Recent events include active tool usage and movement in the map.",
+        `${run.fileCount} file change events detected, showing concrete progress.`,
+        ...sharedReasons,
+      ],
+      nextAction:
+        run.toolCount > run.fileCount
+          ? `Next: ask agent to make one concrete change in ${latestDistrict} before more exploration.`
+          : `Next: keep current flow and verify with one focused test in ${latestDistrict}.`,
+    };
+  }
+
+  if (run.status === "done" || run.successCount > 0) {
+    return {
+      stateLabel: "Agent state: done",
+      stateClass: "state-done",
+      title: "Task run has completed",
+      body: "The current run reached a completed state.",
+      facts: `duration=${formatDuration(durationMs)} | success=${run.successCount} | errors=${run.errorCount} | files=${run.fileCount}`,
+      reasons: [
+        "Completion or success events were observed in the recent timeline.",
+        `Run finished with ${run.successCount} success signals and ${run.errorCount} errors.`,
+        ...sharedReasons,
+      ],
+      nextAction: `Next: export replay JSONL or start a new run. Last active area was ${latestDistrict}.`,
+    };
+  }
+
+  return {
+    stateLabel: "Agent state: idle",
+    stateClass: "state-idle",
+    title: "Agent is waiting or paused",
+    body: "No strong activity signal right now. You can start a new run or use simulator mode.",
+    facts: `duration=${formatDuration(durationMs)} | events=${run.rawEvents.length} | tools=${run.toolCount} | files=${run.fileCount}`,
+    reasons: [
+      "No recent tool burst or file change pattern was detected.",
+      "Run may be awaiting a new prompt or user instruction.",
+      ...sharedReasons,
+    ],
+    nextAction: `Next: send a new prompt or trigger New Run. The last known area was ${latestDistrict}.`,
+  };
+}
+
+function renderStoryPanel() {
+  const run = getActiveRunForView();
+  const story = buildStoryForRun(run);
+
+  storyStateEl.className = `story-state ${story.stateClass}`;
+  storyStateEl.textContent = story.stateLabel;
+  storyTitleEl.textContent = story.title;
+  storyBodyEl.textContent = story.body;
+  storyFactsEl.textContent = story.facts;
+  storyReasonsEl.innerHTML = "";
+  for (const reason of story.reasons || []) {
+    const li = document.createElement("li");
+    li.textContent = reason;
+    storyReasonsEl.append(li);
+  }
+  storyNextEl.textContent = story.nextAction || "Next: waiting for next event.";
+}
+
+function renderCaptionBar() {
+  const run = getActiveRunForView();
+  const mode = state.replay.active ? "Replay" : "Live";
+
+  if (!run) {
+    captionModeEl.textContent = `Mode: ${mode}`;
+    captionAreaEl.textContent = "Area: Waiting";
+    captionStateEl.textContent = "State: Waiting";
+    captionStepEl.textContent = "Current step: Waiting for first event.";
+    captionFileEl.textContent = "Current file: none";
+    return;
+  }
+
+  const latest = run.timeline[run.timeline.length - 1] || null;
+  const latestDistrict = latest?.district || "CBD";
+  const latestFile = latest?.filePath || "none";
+  const latestSummary = latest?.summary || "No event captured yet";
+
+  captionModeEl.textContent = `Mode: ${mode}`;
+  captionAreaEl.textContent = `Area: ${latestDistrict} (${districtMeaning(latestDistrict)})`;
+  captionStateEl.textContent = `State: ${prettyState(run.status, run)}`;
+  captionStepEl.textContent = `Current step: ${latestSummary}`;
+  captionFileEl.textContent = `Current file: ${latestFile}`;
 }
 
 function renderUi() {
   renderWsStatus();
   renderRunList();
+  renderCaptionBar();
+  renderStoryPanel();
   renderTimeline();
   renderScorecard();
   renderInspector();
@@ -1524,6 +1821,13 @@ function setupEventHandlers() {
   reconnectBtnEl.addEventListener("click", () => {
     state.ws.attempts = 0;
     connectWebSocket();
+  });
+
+  focusModeBtnEl.addEventListener("click", () => {
+    state.ui.focusMode = !state.ui.focusMode;
+    document.body.classList.toggle("focus-mode", state.ui.focusMode);
+    focusModeBtnEl.textContent = `Focus View: ${state.ui.focusMode ? "On" : "Off"}`;
+    persistSettings();
   });
 
   setRepoBtnEl.addEventListener("click", () => {
